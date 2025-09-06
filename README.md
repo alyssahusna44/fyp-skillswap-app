@@ -1,6 +1,6 @@
-# UniKL TutorFind – Final Year Project by Azwin & Alyssa
+# UniKL TutorFind – Final Year Project by Alyssa & Azwin
 
-**UniKL TutorFind** is a peer-to-peer skill-matching application developed as a Final Year Project for Universiti Kuala Lumpur. The app enables users to exchange skills by matching learners with tutors and communicating via in-app chat.
+**UniKL TutorFind** is an app developed as a Final Year Project for Universiti Kuala Lumpur. We plan so that the app enables users to exchange skills by matching learners with tutors and communicating via in-app chat.
 
 ## Tech Stack
 
@@ -19,7 +19,7 @@ The database is designed using a relational schema and includes the following ke
 - **messages**: Stores chat messages.
 - **reviews**: Records user ratings and feedback.
 
-The full SQL schema is available in the `schema.sql` file.
+The full SQL schema is available in the `Supabase SQL Script.sql` file.
 
 ## Getting Started
 
