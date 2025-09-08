@@ -1,0 +1,18 @@
+-- Create a function that checks email domain
+CREATE OR REPLACE FUNCTION check_unikl_email()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF position('@s.unikl.edu.my' in NEW.email) = 0 THEN
+    RAISE EXCEPTION 'Only emails with @s.unikl.edu.my domain are allowed.';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add a trigger on signup (auth.users table)
+DROP TRIGGER IF EXISTS check_unikl_email_trigger ON auth.users;
+
+CREATE CONSTRAINT TRIGGER check_unikl_email_trigger
+BEFORE INSERT ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION check_unikl_email();
