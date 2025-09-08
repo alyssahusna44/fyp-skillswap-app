@@ -1,6 +1,6 @@
--- Create the users table to store user information
-CREATE TABLE users (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Profiles table: extends Supabase Auth users
+CREATE TABLE profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email text UNIQUE NOT NULL,
   name text,
   location text,
@@ -8,58 +8,55 @@ CREATE TABLE users (
   updated_at timestamp with time zone DEFAULT now()
 );
 
--- Create the skills table to hold all skill names
+-- Skills table
 CREATE TABLE skills (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text UNIQUE NOT NULL,
   category text
 );
 
--- Create a junction table to link users and skills, specifying if the user can teach or learn a skill
--- This table handles the many-to-many relationship between users and skills
+-- User_Skills junction (many-to-many: teach/learn)
 CREATE TABLE user_skills (
-  user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+  user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
   skill_id uuid REFERENCES skills(id) ON DELETE CASCADE,
   type text NOT NULL CHECK (type IN ('teach', 'learn')),
   PRIMARY KEY (user_id, skill_id, type)
 );
 
--- Create the chats table to represent individual chat conversations
+-- Chats table
 CREATE TABLE chats (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at timestamp with time zone DEFAULT now()
 );
 
--- Create a junction table to link users to a chat, enabling multiple members in a single chat
+-- Chat members (multi-user chat)
 CREATE TABLE chat_members (
   chat_id uuid REFERENCES chats(id) ON DELETE CASCADE,
-  user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+  user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
   PRIMARY KEY (chat_id, user_id)
 );
 
--- Create the messages table to store all chat messages
+-- Messages
 CREATE TABLE messages (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   chat_id uuid REFERENCES chats(id) ON DELETE CASCADE,
-  sender_id uuid REFERENCES users(id) ON DELETE CASCADE,
+  sender_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
   text text NOT NULL,
   sent_at timestamp with time zone DEFAULT now(),
   is_read boolean DEFAULT FALSE
 );
 
--- Create the reviews table to store user ratings and comments
--- It links a reviewer to the user they are reviewing
+-- Reviews (ratings + comments)
 CREATE TABLE reviews (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  reviewer_id uuid REFERENCES users(id) ON DELETE CASCADE,
-  reviewed_user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reviewer_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
+  reviewed_user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
   rating integer NOT NULL CHECK (rating >= 1 AND rating <= 5),
   comment text,
   created_at timestamp with time zone DEFAULT now()
 );
 
--- Optional: Create a function to update the `updated_at` column automatically
--- This is a common practice in PostgreSQL
+-- Auto-update "updated_at" column for profiles
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -68,8 +65,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Optional: Add a trigger to the users table to call the update function on every update
-CREATE TRIGGER update_users_updated_at
-BEFORE UPDATE ON users
+CREATE TRIGGER update_profiles_updated_at
+BEFORE UPDATE ON profiles
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
