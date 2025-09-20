@@ -1,573 +1,377 @@
--- =========================================
--- TUTORFIND - COMPREHENSIVE DATABASE SCHEMA
--- University Tutoring Platform
--- =========================================
+-- =============================================
+-- Supabase Chat Application Database Schema
+-- Extends Supabase Authentication
+-- =============================================
 
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- =========================================
--- 1. PROFILES (Enhanced for tutoring)
--- =========================================
-CREATE TABLE profiles (
-  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email text UNIQUE NOT NULL,
-  student_id text UNIQUE, -- University student ID
-  name text NOT NULL,
-  avatar_url text,
-  phone text,
-  year_of_study integer CHECK (year_of_study >= 1 AND year_of_study <= 6),
-  faculty text NOT NULL,
-  program text NOT NULL,
-  bio text,
-  hourly_rate decimal(10,2) DEFAULT 0.00,
-  is_tutor boolean DEFAULT FALSE,
-  is_verified boolean DEFAULT FALSE,
-  total_rating decimal(3,2) DEFAULT 0.00,
-  total_reviews integer DEFAULT 0,
-  total_sessions integer DEFAULT 0,
-  preferred_location text,
-  languages text[], -- ARRAY of languages
-  availability_notes text,
-  status text DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now()
+-- =============================================
+-- PROFILES TABLE (extends auth.users)
+-- =============================================
+CREATE TABLE public.profiles (
+    id UUID REFERENCES auth.users(id) PRIMARY KEY,
+    bio TEXT,
+    profile_picture_url VARCHAR(255),
+    location VARCHAR(100),
+    average_rating DECIMAL(3,2) DEFAULT 0.00,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Email validation function for UniKL
-CREATE OR REPLACE FUNCTION validate_unikl_email(email_input text)
-RETURNS boolean AS $$
-BEGIN
-  RETURN position('@s.unikl.edu.my' in email_input) > 0;
-END;
-$$ LANGUAGE plpgsql;
+-- =============================================
+-- USER SKILLS TABLE
+-- =============================================
+CREATE TABLE public.user_skills (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    skill_id BIGINT NOT NULL,
+    skill_level VARCHAR(50) DEFAULT 'LEARN', -- LEARN, TEACH, etc.
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
 
--- Email validation trigger
-CREATE OR REPLACE FUNCTION check_profile_email()
+-- =============================================
+-- SKILLS TABLE
+-- =============================================
+CREATE TABLE public.skills (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    category VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- =============================================
+-- USERS TABLE (additional user data beyond auth.users)
+-- =============================================
+CREATE TABLE public.users (
+    id UUID REFERENCES auth.users(id) PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255), -- This will be managed by Supabase Auth
+    name VARCHAR(255),
+    is_verified BOOLEAN DEFAULT FALSE,
+    verification_code VARCHAR(255),
+    verification_requested_at TIMESTAMP WITH TIME ZONE,
+    request_attempts INTEGER DEFAULT 0,
+    email_verified_at TIMESTAMP WITH TIME ZONE,
+    remember_token VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- =============================================
+-- AVAILABILITY TABLE
+-- =============================================
+CREATE TABLE public.availability (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    day_of_week VARCHAR(10) NOT NULL, -- MON, TUE, WED, THU, FRI, SAT, SUN
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    is_recurring BOOLEAN DEFAULT TRUE,
+    date_specific DATE, -- for one-time availability
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT check_day_of_week CHECK (day_of_week IN ('MON','TUE','WED','THU','FRI','SAT','SUN')),
+    CONSTRAINT check_time_order CHECK (start_time < end_time)
+);
+
+-- =============================================
+-- CHAT ROOMS TABLE
+-- =============================================
+CREATE TABLE public.chat_rooms (
+    id BIGSERIAL PRIMARY KEY,
+    skill_1_id BIGINT REFERENCES public.skills(id) NOT NULL,
+    skill_2_id BIGINT REFERENCES public.skills(id) NOT NULL,
+    user2_id UUID REFERENCES auth.users(id) NOT NULL,
+    creator_id UUID REFERENCES auth.users(id) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT different_skills CHECK (skill_1_id != skill_2_id)
+);
+
+-- =============================================
+-- CHAT MESSAGES TABLE
+-- =============================================
+CREATE TABLE public.chat_messages (
+    id BIGSERIAL PRIMARY KEY,
+    chat_room_id BIGINT REFERENCES public.chat_rooms(id) ON DELETE CASCADE NOT NULL,
+    sender_id UUID REFERENCES auth.users(id) NOT NULL,
+    message_text TEXT NOT NULL,
+    sent_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE
+);
+
+-- =============================================
+-- REVIEWS TABLE
+-- =============================================
+CREATE TABLE public.reviews (
+    id BIGSERIAL PRIMARY KEY,
+    reviewer_id UUID REFERENCES auth.users(id) NOT NULL,
+    reviewed_user_id UUID REFERENCES auth.users(id) NOT NULL,
+    rating INTEGER NOT NULL,
+    comment TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT check_rating CHECK (rating >= 1 AND rating <= 5),
+    CONSTRAINT no_self_review CHECK (reviewer_id != reviewed_user_id)
+);
+
+-- =============================================
+-- RATINGS TABLE (separate from reviews for flexibility)
+-- =============================================
+CREATE TABLE public.ratings (
+    id BIGSERIAL PRIMARY KEY,
+    reviewer_id UUID REFERENCES auth.users(id) NOT NULL,
+    reviewed_id UUID REFERENCES auth.users(id) NOT NULL,
+    stars INTEGER NOT NULL,
+    comment TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT check_stars CHECK (stars >= 1 AND stars <= 5),
+    CONSTRAINT no_self_rating CHECK (reviewer_id != reviewed_id)
+);
+
+-- =============================================
+-- INDEXES for better performance
+-- =============================================
+CREATE INDEX idx_profiles_user_id ON public.profiles(id);
+CREATE INDEX idx_user_skills_user_id ON public.user_skills(user_id);
+CREATE INDEX idx_user_skills_skill_id ON public.user_skills(skill_id);
+CREATE INDEX idx_availability_user_id ON public.availability(user_id);
+CREATE INDEX idx_availability_day ON public.availability(day_of_week);
+CREATE INDEX idx_chat_rooms_users ON public.chat_rooms(user2_id, creator_id);
+CREATE INDEX idx_chat_messages_room_id ON public.chat_messages(chat_room_id);
+CREATE INDEX idx_chat_messages_sender ON public.chat_messages(sender_id);
+CREATE INDEX idx_chat_messages_sent_at ON public.chat_messages(sent_at);
+CREATE INDEX idx_reviews_reviewer ON public.reviews(reviewer_id);
+CREATE INDEX idx_reviews_reviewed_user ON public.reviews(reviewed_user_id);
+CREATE INDEX idx_ratings_reviewer ON public.ratings(reviewer_id);
+CREATE INDEX idx_ratings_reviewed ON public.ratings(reviewed_id);
+
+-- =============================================
+-- ROW LEVEL SECURITY POLICIES
+-- =============================================
+
+-- Enable RLS on all tables
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_skills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.availability ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
+
+-- Profiles policies
+CREATE POLICY "Users can view all profiles" ON public.profiles
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can update own profile" ON public.profiles
+    FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert own profile" ON public.profiles
+    FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- User skills policies
+CREATE POLICY "Users can view all user skills" ON public.user_skills
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can manage own skills" ON public.user_skills
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Skills policies (read-only for most users)
+CREATE POLICY "Anyone can view skills" ON public.skills
+    FOR SELECT USING (true);
+
+-- Users table policies
+CREATE POLICY "Users can view all users" ON public.users
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can update own data" ON public.users
+    FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert own data" ON public.users
+    FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- Availability policies
+CREATE POLICY "Users can view all availability" ON public.availability
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can manage own availability" ON public.availability
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Chat rooms policies
+CREATE POLICY "Users can view rooms they're part of" ON public.chat_rooms
+    FOR SELECT USING (auth.uid() = user2_id OR auth.uid() = creator_id);
+
+CREATE POLICY "Users can create chat rooms" ON public.chat_rooms
+    FOR INSERT WITH CHECK (auth.uid() = creator_id);
+
+CREATE POLICY "Users can update rooms they created" ON public.chat_rooms
+    FOR UPDATE USING (auth.uid() = creator_id);
+
+-- Chat messages policies
+CREATE POLICY "Users can view messages in their rooms" ON public.chat_messages
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.chat_rooms cr 
+            WHERE cr.id = chat_room_id 
+            AND (cr.user2_id = auth.uid() OR cr.creator_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Users can send messages to their rooms" ON public.chat_messages
+    FOR INSERT WITH CHECK (
+        auth.uid() = sender_id AND
+        EXISTS (
+            SELECT 1 FROM public.chat_rooms cr 
+            WHERE cr.id = chat_room_id 
+            AND (cr.user2_id = auth.uid() OR cr.creator_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Users can update own messages" ON public.chat_messages
+    FOR UPDATE USING (auth.uid() = sender_id);
+
+-- Reviews policies
+CREATE POLICY "Users can view all reviews" ON public.reviews
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can create reviews" ON public.reviews
+    FOR INSERT WITH CHECK (auth.uid() = reviewer_id);
+
+CREATE POLICY "Users can update own reviews" ON public.reviews
+    FOR UPDATE USING (auth.uid() = reviewer_id);
+
+-- Ratings policies
+CREATE POLICY "Users can view all ratings" ON public.ratings
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can create ratings" ON public.ratings
+    FOR INSERT WITH CHECK (auth.uid() = reviewer_id);
+
+CREATE POLICY "Users can update own ratings" ON public.ratings
+    FOR UPDATE USING (auth.uid() = reviewer_id);
+
+-- =============================================
+-- FUNCTIONS AND TRIGGERS
+-- =============================================
+
+-- Function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION public.handle_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF NOT validate_unikl_email(NEW.email) THEN
-    RAISE EXCEPTION 'Only emails with @s.unikl.edu.my domain are allowed.';
-  END IF;
-  RETURN NEW;
+    NEW.updated_at = timezone('utc'::text, now());
+    RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ language 'plpgsql';
 
-CREATE TRIGGER check_profile_email_trigger
-  BEFORE INSERT OR UPDATE ON profiles
-  FOR EACH ROW
-  EXECUTE FUNCTION check_profile_email();
+-- Add updated_at triggers
+CREATE TRIGGER handle_updated_at_profiles 
+    BEFORE UPDATE ON public.profiles 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
 
--- Auto-update trigger
-CREATE OR REPLACE FUNCTION update_updated_at_column()
+CREATE TRIGGER handle_updated_at_user_skills 
+    BEFORE UPDATE ON public.user_skills 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_skills 
+    BEFORE UPDATE ON public.skills 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_users 
+    BEFORE UPDATE ON public.users 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_availability 
+    BEFORE UPDATE ON public.availability 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_chat_rooms 
+    BEFORE UPDATE ON public.chat_rooms 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_reviews 
+    BEFORE UPDATE ON public.reviews 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_ratings 
+    BEFORE UPDATE ON public.ratings 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+-- Function to create profile on user signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
+    INSERT INTO public.profiles (id)
+    VALUES (NEW.id);
+    
+    INSERT INTO public.users (id, email, name, email_verified_at)
+    VALUES (
+        NEW.id, 
+        NEW.email,
+        COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name'),
+        NEW.email_confirmed_at
+    );
+    
+    RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ language 'plpgsql' security definer;
 
-CREATE TRIGGER update_profiles_updated_at
-BEFORE UPDATE ON profiles
-FOR EACH ROW
-EXECUTE FUNCTION update_updated_at_column();
+-- Trigger to create profile on user signup
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- =========================================
--- 2. SUBJECTS (University-specific)
--- =========================================
-CREATE TABLE subjects (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code text UNIQUE NOT NULL, -- e.g., "CS101", "MATH201"
-  name text NOT NULL, -- e.g., "Introduction to Programming"
-  faculty text NOT NULL,
-  credit_hours integer DEFAULT 3,
-  difficulty_level text CHECK (difficulty_level IN ('beginner', 'intermediate', 'advanced')),
-  description text,
-  prerequisites text[],
-  created_at timestamp with time zone DEFAULT now()
-);
-
--- =========================================
--- 3. TUTOR_SUBJECTS (What tutors can teach)
--- =========================================
-CREATE TABLE tutor_subjects (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tutor_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  subject_id uuid REFERENCES subjects(id) ON DELETE CASCADE,
-  proficiency_level text NOT NULL CHECK (proficiency_level IN ('beginner', 'intermediate', 'advanced', 'expert')),
-  grade_achieved text, -- e.g., "A+", "A", "B+"
-  years_experience integer DEFAULT 0,
-  description text,
-  is_active boolean DEFAULT TRUE,
-  created_at timestamp with time zone DEFAULT now(),
-  UNIQUE(tutor_id, subject_id)
-);
-
--- =========================================
--- 4. AVAILABILITY SCHEDULE
--- =========================================
-CREATE TABLE availability (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tutor_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  day_of_week integer NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6), -- 0=Sunday, 6=Saturday
-  start_time time NOT NULL,
-  end_time time NOT NULL,
-  is_available boolean DEFAULT TRUE,
-  location_preference text,
-  max_students integer DEFAULT 1,
-  created_at timestamp with time zone DEFAULT now(),
-  CHECK (start_time < end_time)
-);
-
--- =========================================
--- 5. TUTORING SESSIONS
--- =========================================
-CREATE TABLE tutoring_sessions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tutor_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  student_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  subject_id uuid REFERENCES subjects(id) ON DELETE CASCADE,
-  title text NOT NULL,
-  description text,
-  session_type text NOT NULL CHECK (session_type IN ('individual', 'group', 'online', 'in-person')),
-  status text DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled', 'no-show')),
-  scheduled_at timestamp with time zone NOT NULL,
-  duration_minutes integer DEFAULT 60,
-  location text,
-  meeting_link text, -- For online sessions
-  price decimal(10,2) NOT NULL,
-  payment_status text DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'refunded')),
-  tutor_notes text,
-  student_notes text,
-  cancellation_reason text,
-  cancelled_by uuid REFERENCES profiles(id),
-  cancelled_at timestamp with time zone,
-  created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CHECK (scheduled_at > now())
-);
-
--- =========================================
--- 6. SESSION REQUESTS
--- =========================================
-CREATE TABLE session_requests (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  tutor_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  subject_id uuid REFERENCES subjects(id) ON DELETE CASCADE,
-  preferred_date timestamp with time zone,
-  duration_minutes integer DEFAULT 60,
-  session_type text NOT NULL CHECK (session_type IN ('individual', 'group', 'online', 'in-person')),
-  budget decimal(10,2),
-  message text,
-  status text DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
-  response_message text,
-  expires_at timestamp with time zone DEFAULT (now() + interval '48 hours'),
-  created_at timestamp with time zone DEFAULT now(),
-  responded_at timestamp with time zone
-);
-
--- =========================================
--- 7. ENHANCED REVIEWS SYSTEM
--- =========================================
-CREATE TABLE reviews (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id uuid REFERENCES tutoring_sessions(id) ON DELETE CASCADE,
-  reviewer_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  reviewed_user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  reviewer_type text NOT NULL CHECK (reviewer_type IN ('student', 'tutor')),
-  rating integer NOT NULL CHECK (rating >= 1 AND rating <= 5),
-  punctuality_rating integer CHECK (punctuality_rating >= 1 AND punctuality_rating <= 5),
-  communication_rating integer CHECK (communication_rating >= 1 AND communication_rating <= 5),
-  knowledge_rating integer CHECK (knowledge_rating >= 1 AND knowledge_rating <= 5),
-  comment text,
-  is_anonymous boolean DEFAULT FALSE,
-  is_verified boolean DEFAULT FALSE,
-  helpful_votes integer DEFAULT 0,
-  created_at timestamp with time zone DEFAULT now()
-);
-
--- =========================================
--- 8. MESSAGING SYSTEM (Enhanced)
--- =========================================
-CREATE TABLE chats (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  chat_type text DEFAULT 'direct' CHECK (chat_type IN ('direct', 'group', 'session')),
-  session_id uuid REFERENCES tutoring_sessions(id) ON DELETE SET NULL,
-  subject text,
-  last_message_at timestamp with time zone DEFAULT now(),
-  created_at timestamp with time zone DEFAULT now()
-);
-
-CREATE TABLE chat_members (
-  chat_id uuid REFERENCES chats(id) ON DELETE CASCADE,
-  user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  role text DEFAULT 'member' CHECK (role IN ('member', 'admin')),
-  joined_at timestamp with time zone DEFAULT now(),
-  last_read_at timestamp with time zone DEFAULT now(),
-  is_muted boolean DEFAULT FALSE,
-  PRIMARY KEY (chat_id, user_id)
-);
-
-CREATE TABLE messages (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  chat_id uuid REFERENCES chats(id) ON DELETE CASCADE,
-  sender_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  message_type text DEFAULT 'text' CHECK (message_type IN ('text', 'file', 'image', 'session_request')),
-  content text NOT NULL,
-  file_url text,
-  file_name text,
-  file_size integer,
-  reply_to uuid REFERENCES messages(id),
-  is_edited boolean DEFAULT FALSE,
-  edited_at timestamp with time zone,
-  sent_at timestamp with time zone DEFAULT now()
-);
-
--- =========================================
--- 9. NOTIFICATIONS SYSTEM
--- =========================================
-CREATE TABLE notifications (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  notification_type text NOT NULL CHECK (notification_type IN (
-    'session_request', 'session_confirmed', 'session_cancelled', 'session_reminder',
-    'new_review', 'message', 'payment_received', 'profile_verified'
-  )),
-  title text NOT NULL,
-  message text NOT NULL,
-  data jsonb, -- Additional data for the notification
-  is_read boolean DEFAULT FALSE,
-  action_url text,
-  created_at timestamp with time zone DEFAULT now(),
-  expires_at timestamp with time zone
-);
-
--- =========================================
--- 10. PAYMENTS & EARNINGS
--- =========================================
-CREATE TABLE payments (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id uuid REFERENCES tutoring_sessions(id) ON DELETE CASCADE,
-  payer_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  payee_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  amount decimal(10,2) NOT NULL,
-  platform_fee decimal(10,2) NOT NULL DEFAULT 0.00,
-  net_amount decimal(10,2) NOT NULL,
-  payment_method text CHECK (payment_method IN ('card', 'bank_transfer', 'ewallet', 'cash')),
-  transaction_id text UNIQUE,
-  status text DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed', 'refunded')),
-  payment_date timestamp with time zone DEFAULT now(),
-  refund_date timestamp with time zone,
-  refund_reason text
-);
-
-CREATE TABLE earnings (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tutor_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  total_earned decimal(10,2) DEFAULT 0.00,
-  pending_amount decimal(10,2) DEFAULT 0.00,
-  withdrawn_amount decimal(10,2) DEFAULT 0.00,
-  available_amount decimal(10,2) DEFAULT 0.00,
-  last_updated timestamp with time zone DEFAULT now()
-);
-
--- =========================================
--- 11. STUDY MATERIALS
--- =========================================
-CREATE TABLE study_materials (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  uploader_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  subject_id uuid REFERENCES subjects(id) ON DELETE CASCADE,
-  title text NOT NULL,
-  description text,
-  material_type text CHECK (material_type IN ('notes', 'slides', 'practice', 'solution', 'video', 'link')),
-  file_url text,
-  file_size integer,
-  download_count integer DEFAULT 0,
-  is_approved boolean DEFAULT FALSE,
-  is_premium boolean DEFAULT FALSE,
-  price decimal(10,2) DEFAULT 0.00,
-  tags text[],
-  created_at timestamp with time zone DEFAULT now()
-);
-
--- =========================================
--- 12. BOOKMARKS & FAVORITES
--- =========================================
-CREATE TABLE bookmarks (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  bookmarked_user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  created_at timestamp with time zone DEFAULT now(),
-  UNIQUE(user_id, bookmarked_user_id)
-);
-
--- =========================================
--- 13. REPORTS & MODERATION
--- =========================================
-CREATE TABLE reports (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  reporter_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  reported_user_id uuid REFERENCES profiles(id) ON DELETE CASCADE,
-  session_id uuid REFERENCES tutoring_sessions(id) ON DELETE SET NULL,
-  report_type text NOT NULL CHECK (report_type IN (
-    'inappropriate_behavior', 'no_show', 'unprofessional', 'harassment', 'spam', 'other'
-  )),
-  description text NOT NULL,
-  status text DEFAULT 'pending' CHECK (status IN ('pending', 'investigating', 'resolved', 'dismissed')),
-  admin_notes text,
-  created_at timestamp with time zone DEFAULT now(),
-  resolved_at timestamp with time zone
-);
-
--- =========================================
--- 14. ADMIN SETTINGS
--- =========================================
-CREATE TABLE app_settings (
-  key text PRIMARY KEY,
-  value text NOT NULL,
-  description text,
-  updated_at timestamp with time zone DEFAULT now()
-);
-
--- Insert default settings
-INSERT INTO app_settings (key, value, description) VALUES
-('platform_fee_percentage', '10', 'Platform fee as percentage of session price'),
-('max_session_duration', '180', 'Maximum session duration in minutes'),
-('booking_advance_days', '14', 'Maximum days in advance for booking'),
-('cancellation_hours', '24', 'Minimum hours before session for free cancellation'),
-('min_hourly_rate', '15.00', 'Minimum hourly rate in MYR'),
-('max_hourly_rate', '200.00', 'Maximum hourly rate in MYR');
-
--- =========================================
--- 15. ROW LEVEL SECURITY POLICIES
--- =========================================
-
--- Enable RLS
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tutor_subjects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE availability ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tutoring_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE session_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
-ALTER TABLE chats ENABLE ROW LEVEL SECURITY;
-ALTER TABLE chat_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE earnings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE study_materials ENABLE ROW LEVEL SECURITY;
-ALTER TABLE bookmarks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
-
--- PROFILES POLICIES
-CREATE POLICY "Anyone can view active profiles" ON profiles
-FOR SELECT USING (status = 'active');
-
-CREATE POLICY "Users can update own profile" ON profiles
-FOR UPDATE USING (auth.uid() = id);
-
-CREATE POLICY "Users can insert own profile" ON profiles
-FOR INSERT WITH CHECK (auth.uid() = id);
-
--- TUTOR_SUBJECTS POLICIES
-CREATE POLICY "Anyone can view tutor subjects" ON tutor_subjects
-FOR SELECT USING (is_active = true);
-
-CREATE POLICY "Tutors can manage their subjects" ON tutor_subjects
-FOR ALL USING (auth.uid() = tutor_id);
-
--- AVAILABILITY POLICIES
-CREATE POLICY "Anyone can view tutor availability" ON availability
-FOR SELECT USING (is_available = true);
-
-CREATE POLICY "Tutors can manage their availability" ON availability
-FOR ALL USING (auth.uid() = tutor_id);
-
--- TUTORING_SESSIONS POLICIES
-CREATE POLICY "Users can view their own sessions" ON tutoring_sessions
-FOR SELECT USING (auth.uid() = tutor_id OR auth.uid() = student_id);
-
-CREATE POLICY "Students can create sessions" ON tutoring_sessions
-FOR INSERT WITH CHECK (auth.uid() = student_id);
-
-CREATE POLICY "Session participants can update" ON tutoring_sessions
-FOR UPDATE USING (auth.uid() = tutor_id OR auth.uid() = student_id);
-
--- SESSION_REQUESTS POLICIES
-CREATE POLICY "Users can view their requests" ON session_requests
-FOR SELECT USING (auth.uid() = student_id OR auth.uid() = tutor_id);
-
-CREATE POLICY "Students can create requests" ON session_requests
-FOR INSERT WITH CHECK (auth.uid() = student_id);
-
-CREATE POLICY "Tutors can respond to requests" ON session_requests
-FOR UPDATE USING (auth.uid() = tutor_id);
-
--- REVIEWS POLICIES
-CREATE POLICY "Anyone can read reviews" ON reviews
-FOR SELECT USING (true);
-
-CREATE POLICY "Session participants can create reviews" ON reviews
-FOR INSERT WITH CHECK (auth.uid() = reviewer_id);
-
--- MESSAGING POLICIES
-CREATE POLICY "Users can view their chats" ON chats
-FOR SELECT USING (
-  EXISTS (SELECT 1 FROM chat_members WHERE chat_id = chats.id AND user_id = auth.uid())
-);
-
-CREATE POLICY "Users can view their chat memberships" ON chat_members
-FOR SELECT USING (user_id = auth.uid());
-
-CREATE POLICY "Users can read messages in their chats" ON messages
-FOR SELECT USING (
-  EXISTS (SELECT 1 FROM chat_members WHERE chat_id = messages.chat_id AND user_id = auth.uid())
-);
-
-CREATE POLICY "Users can send messages" ON messages
-FOR INSERT WITH CHECK (
-  EXISTS (SELECT 1 FROM chat_members WHERE chat_id = messages.chat_id AND user_id = auth.uid())
-  AND sender_id = auth.uid()
-);
-
--- NOTIFICATIONS POLICIES
-CREATE POLICY "Users can view their notifications" ON notifications
-FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their notifications" ON notifications
-FOR UPDATE USING (auth.uid() = user_id);
-
--- PAYMENTS POLICIES
-CREATE POLICY "Users can view their payments" ON payments
-FOR SELECT USING (auth.uid() = payer_id OR auth.uid() = payee_id);
-
--- EARNINGS POLICIES
-CREATE POLICY "Tutors can view their earnings" ON earnings
-FOR SELECT USING (auth.uid() = tutor_id);
-
--- STUDY_MATERIALS POLICIES
-CREATE POLICY "Anyone can view approved materials" ON study_materials
-FOR SELECT USING (is_approved = true);
-
-CREATE POLICY "Users can manage their materials" ON study_materials
-FOR ALL USING (auth.uid() = uploader_id);
-
--- BOOKMARKS POLICIES
-CREATE POLICY "Users can manage their bookmarks" ON bookmarks
-FOR ALL USING (auth.uid() = user_id);
-
--- REPORTS POLICIES
-CREATE POLICY "Users can create reports" ON reports
-FOR INSERT WITH CHECK (auth.uid() = reporter_id);
-
-CREATE POLICY "Users can view their reports" ON reports
-FOR SELECT USING (auth.uid() = reporter_id);
-
--- =========================================
--- 16. USEFUL FUNCTIONS
--- =========================================
-
--- Function to calculate tutor rating
-CREATE OR REPLACE FUNCTION calculate_tutor_rating(tutor_uuid uuid)
-RETURNS void AS $$
-DECLARE
-  avg_rating decimal(3,2);
-  review_count integer;
-BEGIN
-  SELECT AVG(rating)::decimal(3,2), COUNT(*)
-  INTO avg_rating, review_count
-  FROM reviews
-  WHERE reviewed_user_id = tutor_uuid AND reviewer_type = 'student';
-  
-  UPDATE profiles
-  SET total_rating = COALESCE(avg_rating, 0.00),
-      total_reviews = review_count
-  WHERE id = tutor_uuid;
-END;
-$$ LANGUAGE plpgsql;
-
--- Function to update earnings
-CREATE OR REPLACE FUNCTION update_tutor_earnings(tutor_uuid uuid, amount decimal(10,2))
-RETURNS void AS $$
-BEGIN
-  INSERT INTO earnings (tutor_id, total_earned, available_amount)
-  VALUES (tutor_uuid, amount, amount)
-  ON CONFLICT (tutor_id)
-  DO UPDATE SET
-    total_earned = earnings.total_earned + amount,
-    available_amount = earnings.available_amount + amount,
-    last_updated = now();
-END;
-$$ LANGUAGE plpgsql;
-
--- =========================================
--- 17. TRIGGERS
--- =========================================
-
--- Update session count when session is completed
-CREATE OR REPLACE FUNCTION update_session_count()
+-- Function to update average rating
+CREATE OR REPLACE FUNCTION public.update_average_rating()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF NEW.status = 'completed' AND OLD.status != 'completed' THEN
-    UPDATE profiles SET total_sessions = total_sessions + 1
-    WHERE id = NEW.tutor_id OR id = NEW.student_id;
-  END IF;
-  RETURN NEW;
+    -- Update average rating in profiles table
+    UPDATE public.profiles 
+    SET average_rating = (
+        SELECT COALESCE(AVG(rating), 0)::DECIMAL(3,2)
+        FROM public.reviews 
+        WHERE reviewed_user_id = COALESCE(NEW.reviewed_user_id, OLD.reviewed_user_id)
+    )
+    WHERE id = COALESCE(NEW.reviewed_user_id, OLD.reviewed_user_id);
+    
+    RETURN COALESCE(NEW, OLD);
 END;
-$$ LANGUAGE plpgsql;
+$$ language 'plpgsql' security definer;
 
-CREATE TRIGGER update_session_count_trigger
-  AFTER UPDATE ON tutoring_sessions
-  FOR EACH ROW
-  EXECUTE FUNCTION update_session_count();
+-- Trigger to update average rating on review changes
+CREATE TRIGGER update_rating_on_review_change
+    AFTER INSERT OR UPDATE OR DELETE ON public.reviews
+    FOR EACH ROW EXECUTE PROCEDURE public.update_average_rating();
 
--- Update last_message_at in chats
-CREATE OR REPLACE FUNCTION update_chat_timestamp()
-RETURNS TRIGGER AS $$
-BEGIN
-  UPDATE chats SET last_message_at = NEW.sent_at
-  WHERE id = NEW.chat_id;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- =============================================
+-- SAMPLE DATA (Optional)
+-- =============================================
 
-CREATE TRIGGER update_chat_timestamp_trigger
-  AFTER INSERT ON messages
-  FOR EACH ROW
-  EXECUTE FUNCTION update_chat_timestamp();
+-- Insert some sample skills
+INSERT INTO public.skills (name, category) VALUES
+('JavaScript', 'Programming'),
+('Python', 'Programming'),
+('React', 'Frontend'),
+('Node.js', 'Backend'),
+('SQL', 'Database'),
+('Guitar', 'Music'),
+('Piano', 'Music'),
+('Spanish', 'Language'),
+('French', 'Language'),
+('Cooking', 'Life Skills'),
+('Photography', 'Creative'),
+('Boxing', 'Fitness');
 
--- =========================================
--- 18. INDEXES FOR PERFORMANCE
--- =========================================
-
--- Profile indexes
-CREATE INDEX idx_profiles_faculty ON profiles(faculty);
-CREATE INDEX idx_profiles_is_tutor ON profiles(is_tutor);
-CREATE INDEX idx_profiles_status ON profiles(status);
-
--- Subject indexes
-CREATE INDEX idx_subjects_faculty ON subjects(faculty);
-CREATE INDEX idx_subjects_code ON subjects(code);
-
--- Tutor subjects indexes
-CREATE INDEX idx_tutor_subjects_tutor_id ON tutor_subjects(tutor_id);
-CREATE INDEX idx_tutor_subjects_subject_id ON tutor_subjects(subject_id);
-CREATE INDEX idx_tutor_subjects_active ON tutor_subjects(is_active);
-
--- Session indexes
-CREATE INDEX idx_sessions_tutor_id ON tutoring_sessions(tutor_id);
-CREATE INDEX idx_sessions_student_id ON tutoring_sessions(student_id);
-CREATE INDEX idx_sessions_status ON tutoring_sessions(status);
-CREATE INDEX idx_sessions_scheduled_at ON tutoring_sessions(scheduled_at);
-
--- Message indexes
-CREATE INDEX idx_messages_chat_id ON messages(chat_id);
-CREATE INDEX idx_messages_sender_id ON messages(sender_id);
-CREATE INDEX idx_messages_sent_at ON messages(sent_at);
-
--- Notification indexes
-CREATE INDEX idx_notifications_user_id ON notifications(user_id);
-CREATE INDEX idx_notifications_is_read ON notifications(is_read);
-CREATE INDEX idx_notifications_created_at ON notifications(created_at);
+-- Grant necessary permissions
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
