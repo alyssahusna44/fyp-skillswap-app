@@ -352,20 +352,20 @@ CREATE TRIGGER update_rating_on_review_change
     FOR EACH ROW EXECUTE PROCEDURE public.update_average_rating();
 
 -- =============================================
--- SAMPLE DATA (Optional)
+-- SAMPLE DATA
 -- =============================================
 
 -- Insert some sample skills
 INSERT INTO public.skills (name, category) VALUES
 ('JavaScript', 'Programming'),
-('Python', 'Programming'),
+('Flutter', 'Framework'),
 ('React', 'Frontend'),
 ('Node.js', 'Backend'),
-('SQL', 'Database'),
+('PostgreSQL', 'Database'),
 ('Guitar', 'Music'),
 ('Piano', 'Music'),
-('Spanish', 'Language'),
-('French', 'Language'),
+('German', 'Language'),
+('Mandarin', 'Language'),
 ('Cooking', 'Life Skills'),
 ('Photography', 'Creative'),
 ('Boxing', 'Fitness');
