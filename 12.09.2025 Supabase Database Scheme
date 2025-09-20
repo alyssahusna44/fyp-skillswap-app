@@ -1,9 +1,9 @@
 -- =============================================
--- Supabase Chat Application Database Schema
+-- Application Database Schema
 -- Extends Supabase Authentication
 -- =============================================
 
--- Enable necessary extensions
+-- Enable uuid generation extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- =============================================
