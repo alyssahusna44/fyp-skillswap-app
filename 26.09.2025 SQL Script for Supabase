@@ -375,3 +375,110 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+
+-- =============================================
+-- Database Functions for Profile Management
+-- =============================================
+
+-- Function to upsert (create or update) user profile with skills and availability
+CREATE OR REPLACE FUNCTION upsert_user_profile(
+    p_user_id UUID,
+    p_name TEXT,
+    p_bio TEXT DEFAULT NULL,
+    p_location TEXT DEFAULT NULL,
+    p_profile_picture_url TEXT DEFAULT NULL,
+    p_skills_to_teach TEXT[] DEFAULT '{}',
+    p_skills_to_learn TEXT[] DEFAULT '{}',
+    p_availability JSONB[] DEFAULT '{}'
+)
+RETURNS VOID AS $
+DECLARE
+    skill_name TEXT;
+    skill_id BIGINT;
+    availability_item JSONB;
+BEGIN
+    -- Update profiles table
+    UPDATE public.profiles 
+    SET 
+        bio = p_bio,
+        location = p_location,
+        profile_picture_url = p_profile_picture_url,
+        updated_at = timezone('utc'::text, now())
+    WHERE id = p_user_id;
+
+    -- Update users table
+    UPDATE public.users 
+    SET 
+        name = p_name,
+        updated_at = timezone('utc'::text, now())
+    WHERE id = p_user_id;
+
+    -- Clear existing user skills
+    DELETE FROM public.user_skills WHERE user_id = p_user_id;
+
+    -- Add skills to teach
+    FOREACH skill_name IN ARRAY p_skills_to_teach
+    LOOP
+        -- Get or create skill
+        INSERT INTO public.skills (name, category) 
+        VALUES (skill_name, 'General')
+        ON CONFLICT (name) DO NOTHING;
+        
+        SELECT id INTO skill_id 
+        FROM public.skills 
+        WHERE name = skill_name;
+        
+        -- Add user skill relationship
+        INSERT INTO public.user_skills (user_id, skill_id, skill_level)
+        VALUES (p_user_id, skill_id, 'TEACH');
+    END LOOP;
+
+    -- Add skills to learn
+    FOREACH skill_name IN ARRAY p_skills_to_learn
+    LOOP
+        -- Get or create skill
+        INSERT INTO public.skills (name, category) 
+        VALUES (skill_name, 'General')
+        ON CONFLICT (name) DO NOTHING;
+        
+        SELECT id INTO skill_id 
+        FROM public.skills 
+        WHERE name = skill_name;
+        
+        -- Add user skill relationship
+        INSERT INTO public.user_skills (user_id, skill_id, skill_level)
+        VALUES (p_user_id, skill_id, 'LEARN');
+    END LOOP;
+
+    -- Clear existing availability
+    DELETE FROM public.availability WHERE user_id = p_user_id;
+
+    -- Add new availability
+    FOREACH availability_item IN ARRAY p_availability
+    LOOP
+        INSERT INTO public.availability (
+            user_id,
+            day_of_week,
+            start_time,
+            end_time,
+            is_recurring,
+            date_specific
+        ) VALUES (
+            p_user_id,
+            availability_item->>'day_of_week',
+            (availability_item->>'start_time')::TIME,
+            (availability_item->>'end_time')::TIME,
+            COALESCE((availability_item->>'is_recurring')::BOOLEAN, true),
+            CASE 
+                WHEN availability_item->>'date_specific' IS NOT NULL 
+                THEN (availability_item->>'date_specific')::DATE 
+                ELSE NULL 
+            END
+        );
+    END LOOP;
+
+END;
+$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant execute permissions on functions
+GRANT EXECUTE ON FUNCTION upsert_user_profile TO authenticated;
