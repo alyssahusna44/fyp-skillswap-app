@@ -1,101 +1,69 @@
--- =============================
--- 1. Academic Structure
--- =============================
-
+-- 1. Institutes
 CREATE TABLE institute (
-    institute_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institute_id SERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
 );
 
+-- 2. Programs (linked to institute)
 CREATE TABLE program (
-    program_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institute_id UUID REFERENCES institute(institute_id) ON DELETE CASCADE,
+    program_id SERIAL PRIMARY KEY,
+    institute_id INT REFERENCES institute(institute_id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    level TEXT CHECK (level IN ('Foundation','Diploma','Bachelor','Master','PhD','Certificate'))
+    level TEXT NOT NULL CHECK (level IN ('Foundation','Diploma','Bachelor','Master','PhD','Certificate','Professional'))
 );
 
-CREATE TABLE specialization (
-    specialization_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    program_id UUID REFERENCES program(program_id) ON DELETE CASCADE,
-    name TEXT NOT NULL
-);
-
+-- 3. Subjects (tied to institute, not program)
 CREATE TABLE subject (
-    subject_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institute_id UUID REFERENCES institute(institute_id) ON DELETE CASCADE,
-    code TEXT NOT NULL UNIQUE,
+    subject_id SERIAL PRIMARY KEY,
+    institute_id INT REFERENCES institute(institute_id) ON DELETE CASCADE,
+    code TEXT,
     title TEXT NOT NULL,
-    credit_hours INT CHECK (credit_hours > 0)
+    credit_hours INT
 );
 
-CREATE TABLE program_subject (
-    program_id UUID REFERENCES program(program_id) ON DELETE CASCADE,
-    subject_id UUID REFERENCES subject(subject_id) ON DELETE CASCADE,
-    is_core BOOLEAN DEFAULT TRUE,
-    PRIMARY KEY (program_id, subject_id)
-);
-
--- =============================
--- 2. Students & Tutors
--- =============================
-
--- Supabase Auth will store users in auth.users
--- This table extends with UniKL-specific student data
+-- 4. Students (each student belongs to a program)
 CREATE TABLE student (
-    student_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    auth_id UUID UNIQUE, -- FK to auth.users.id (set manually after signup)
+    student_id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
-    institute_id UUID REFERENCES institute(institute_id),
-    program_id UUID REFERENCES program(program_id),
-    specialization_id UUID REFERENCES specialization(specialization_id),
-    year_of_study INT CHECK (year_of_study > 0)
+    institute_id INT REFERENCES institute(institute_id) ON DELETE CASCADE,
+    program_id INT REFERENCES program(program_id) ON DELETE CASCADE,
+    year_of_study INT
 );
 
+-- 5. Tutor Profile (extension of student)
 CREATE TABLE tutor_profile (
-    tutor_id UUID PRIMARY KEY REFERENCES student(student_id) ON DELETE CASCADE,
+    tutor_id INT PRIMARY KEY REFERENCES student(student_id) ON DELETE CASCADE,
     bio TEXT,
-    availability JSONB, -- e.g. {"Mon": ["10:00-12:00"], "Wed": ["14:00-16:00"]}
+    availability TEXT,
     hourly_rate NUMERIC(6,2)
 );
 
+-- 6. Tutor Subjects (which subjects a tutor can teach)
 CREATE TABLE tutor_subject (
-    tutor_id UUID REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
-    subject_id UUID REFERENCES subject(subject_id) ON DELETE CASCADE,
-    grade TEXT CHECK (grade IN ('A','A-','B+','B','B-','C+','C','C-','D','E','F')),
-    proof_url TEXT, -- Supabase Storage link
+    tutor_id INT REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
+    subject_id INT REFERENCES subject(subject_id) ON DELETE CASCADE,
+    proof TEXT,
+    grade TEXT,
     PRIMARY KEY (tutor_id, subject_id)
 );
 
--- =============================
--- 3. Tutoring System
--- =============================
-
-CREATE TABLE tutor_session (
-    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tutor_id UUID REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
-    student_id UUID REFERENCES student(student_id) ON DELETE CASCADE,
-    subject_id UUID REFERENCES subject(subject_id) ON DELETE CASCADE,
-    session_date TIMESTAMP NOT NULL,
-    status TEXT CHECK (status IN ('pending','accepted','completed','cancelled')) DEFAULT 'pending'
-);
-
+-- 7. Tutor Reviews (peer/student feedback)
 CREATE TABLE tutor_review (
-    review_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tutor_id UUID REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
-    student_id UUID REFERENCES student(student_id) ON DELETE CASCADE,
+    review_id SERIAL PRIMARY KEY,
+    tutor_id INT REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
+    student_id INT REFERENCES student(student_id) ON DELETE CASCADE,
     rating INT CHECK (rating BETWEEN 1 AND 5),
     comment TEXT,
-    created_at TIMESTAMP DEFAULT now()
+    date TIMESTAMP DEFAULT NOW()
 );
 
--- =============================
--- 4. Indexes for performance
--- =============================
-CREATE INDEX idx_program_institute ON program(institute_id);
-CREATE INDEX idx_specialization_program ON specialization(program_id);
-CREATE INDEX idx_subject_institute ON subject(institute_id);
-CREATE INDEX idx_student_program ON student(program_id);
-CREATE INDEX idx_tutor_subject ON tutor_subject(tutor_id, subject_id);
-CREATE INDEX idx_session_tutor ON tutor_session(tutor_id);
-CREATE INDEX idx_session_student ON tutor_session(student_id);
+-- 8. Tutor Sessions (track completed sessions)
+CREATE TABLE tutor_session (
+    session_id SERIAL PRIMARY KEY,
+    tutor_id INT REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
+    student_id INT REFERENCES student(student_id) ON DELETE CASCADE,
+    subject_id INT REFERENCES subject(subject_id) ON DELETE CASCADE,
+    date TIMESTAMP DEFAULT NOW(),
+    status TEXT CHECK (status IN ('scheduled','completed','cancelled')) NOT NULL
+);
