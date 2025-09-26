@@ -35,6 +35,16 @@ CREATE TABLE tutor_profile (
     hourly_rate NUMERIC(6,2)
 );
 
+-- Allow only @s.unikl.edu.my emails for signup
+ALTER TABLE student
+    ADD CONSTRAINT email_domain_chk CHECK (EXISTS (
+        SELECT 1
+        FROM auth.users u
+        WHERE u.id = student.student_id
+          AND u.email LIKE '%@s.unikl.edu.my'
+    ));
+
+
 -- 5. Tutor Subjects (which subjects a tutor can teach)
 CREATE TABLE tutor_subject (
     tutor_id UUID REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
