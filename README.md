@@ -1,6 +1,6 @@
-# UniKL TutorFind – Final Year Project by Alyssa & Azwin
+# UniKL Skillswap – Final Year Project by Alyssa & Azwin
 
-**UniKL TutorFind** is an app developed as a Final Year Project for Universiti Kuala Lumpur. We plan so that the app enables users to exchange skills by matching learners with tutors and communicating via in-app chat.
+**UniKL SkillSwap** is an app developed as a Final Year Project for Universiti Kuala Lumpur. We plan so that the app enables users to exchange skills by matching learners with tutors and communicating via in-app chat.
 
 ## Tech Stack
 
