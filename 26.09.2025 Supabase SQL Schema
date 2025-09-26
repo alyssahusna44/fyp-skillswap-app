@@ -1,37 +1,30 @@
--- 1. Institutes
-CREATE TABLE institute (
-    institute_id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-);
+-- SCHEMA: UniKL MIIT Tutor Finder
 
--- 2. Programs (linked to institute)
+-- 1. Programs (MIIT only)
 CREATE TABLE program (
     program_id SERIAL PRIMARY KEY,
-    institute_id INT REFERENCES institute(institute_id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    level TEXT NOT NULL CHECK (level IN ('Foundation','Diploma','Bachelor','Master','PhD','Certificate','Professional'))
+    level TEXT NOT NULL CHECK (level IN ('Foundation','Diploma','Bachelor','Master','PhD'))
 );
 
--- 3. Subjects (tied to institute, not program)
+-- 2. Subjects (tied directly to MIIT, not program-specific)
 CREATE TABLE subject (
     subject_id SERIAL PRIMARY KEY,
-    institute_id INT REFERENCES institute(institute_id) ON DELETE CASCADE,
-    code TEXT,
+    code TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     credit_hours INT
 );
 
--- 4. Students (each student belongs to a program)
+-- 3. Students
 CREATE TABLE student (
     student_id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    institute_id INT REFERENCES institute(institute_id) ON DELETE CASCADE,
+    email TEXT UNIQUE NOT NULL CHECK (email LIKE '%@s.unikl.edu.my'),
     program_id INT REFERENCES program(program_id) ON DELETE CASCADE,
     year_of_study INT
 );
 
--- 5. Tutor Profile (extension of student)
+-- 4. Tutor Profile (extension of student)
 CREATE TABLE tutor_profile (
     tutor_id INT PRIMARY KEY REFERENCES student(student_id) ON DELETE CASCADE,
     bio TEXT,
@@ -39,7 +32,7 @@ CREATE TABLE tutor_profile (
     hourly_rate NUMERIC(6,2)
 );
 
--- 6. Tutor Subjects (which subjects a tutor can teach)
+-- 5. Tutor Subjects (which subjects a tutor can teach)
 CREATE TABLE tutor_subject (
     tutor_id INT REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
     subject_id INT REFERENCES subject(subject_id) ON DELETE CASCADE,
@@ -48,7 +41,7 @@ CREATE TABLE tutor_subject (
     PRIMARY KEY (tutor_id, subject_id)
 );
 
--- 7. Tutor Reviews (peer/student feedback)
+-- 6. Tutor Reviews (peer/student feedback)
 CREATE TABLE tutor_review (
     review_id SERIAL PRIMARY KEY,
     tutor_id INT REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
@@ -58,7 +51,7 @@ CREATE TABLE tutor_review (
     date TIMESTAMP DEFAULT NOW()
 );
 
--- 8. Tutor Sessions (track completed sessions)
+-- 7. Tutor Sessions (track completed sessions)
 CREATE TABLE tutor_session (
     session_id SERIAL PRIMARY KEY,
     tutor_id INT REFERENCES tutor_profile(tutor_id) ON DELETE CASCADE,
