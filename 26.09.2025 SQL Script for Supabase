@@ -391,7 +391,7 @@ CREATE OR REPLACE FUNCTION upsert_user_profile(
     p_skills_to_learn TEXT[] DEFAULT '{}',
     p_availability JSONB[] DEFAULT '{}'
 )
-RETURNS VOID AS $
+RETURNS VOID AS $$
 DECLARE
     skill_name TEXT;
     skill_id BIGINT;
@@ -478,7 +478,7 @@ BEGIN
     END LOOP;
 
 END;
-$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Grant execute permissions on functions
 GRANT EXECUTE ON FUNCTION upsert_user_profile TO authenticated;
