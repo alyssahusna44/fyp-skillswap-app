@@ -30,46 +30,62 @@ ALTER TABLE tutor_subject ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tutor_review ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tutor_session ENABLE ROW LEVEL SECURITY;
 
+-- ========================
 -- Students
+-- ========================
 CREATE POLICY "Students can view all"
-ON student FOR SELECT USING (true);
+ON student FOR SELECT
+USING (true);
 
 CREATE POLICY "Students can update own profile"
-ON student FOR UPDATE USING (auth.uid() = student_id);
+ON student FOR UPDATE
+USING (auth.uid() = student_id)
+WITH CHECK (auth.uid() = student_id);
 
+-- ========================
 -- Tutor Profile
+-- ========================
 CREATE POLICY "Anyone can view tutors"
-ON tutor_profile FOR SELECT USING (true);
+ON tutor_profile FOR SELECT
+USING (true);
 
 CREATE POLICY "Tutor can update own profile"
-ON tutor_profile FOR UPDATE USING (auth.uid() = tutor_id);
+ON tutor_profile FOR UPDATE
+USING (auth.uid() = tutor_id)
+WITH CHECK (auth.uid() = tutor_id);
 
+-- ========================
 -- Tutor Subjects
+-- ========================
 CREATE POLICY "Anyone can view tutor subjects"
-ON tutor_subject FOR SELECT USING (true);
+ON tutor_subject FOR SELECT
+USING (true);
 
 CREATE POLICY "Tutor can manage own subjects"
 ON tutor_subject FOR ALL
 USING (auth.uid() = tutor_id)
 WITH CHECK (auth.uid() = tutor_id);
 
+-- ========================
 -- Tutor Reviews
+-- ========================
 CREATE POLICY "Anyone can view reviews"
-ON tutor_review FOR SELECT USING (true);
+ON tutor_review FOR SELECT
+USING (true);
 
 CREATE POLICY "Students can insert own reviews"
 ON tutor_review FOR INSERT
-USING (auth.uid() = student_id)
 WITH CHECK (auth.uid() = student_id);
 
+-- ========================
 -- Tutor Sessions
+-- ========================
 CREATE POLICY "Participants can view own sessions"
 ON tutor_session FOR SELECT
 USING (auth.uid() = tutor_id OR auth.uid() = student_id);
 
 CREATE POLICY "Participants can insert sessions"
 ON tutor_session FOR INSERT
-USING (auth.uid() = tutor_id OR auth.uid() = student_id)
 WITH CHECK (auth.uid() = tutor_id OR auth.uid() = student_id);
 
 CREATE POLICY "Participants can update sessions"
