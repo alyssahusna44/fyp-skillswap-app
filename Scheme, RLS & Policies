@@ -487,3 +487,10 @@ GRANT EXECUTE ON FUNCTION upsert_user_profile TO authenticated;
 insert into storage.buckets (id, name, public)
 values ('avatars', 'avatars', true)
 on conflict (id) do nothing;
+
+-- Add the missing foreign key constraint for user_skills -> skills
+ALTER TABLE public.user_skills 
+ADD CONSTRAINT user_skills_skill_id_fkey 
+FOREIGN KEY (skill_id) 
+REFERENCES public.skills(id) 
+ON DELETE CASCADE;
