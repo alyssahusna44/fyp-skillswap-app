@@ -1,0 +1,489 @@
+-- =============================================
+-- Application Database Schema
+-- Extends Supabase Authentication
+-- =============================================
+
+-- Enable uuid generation extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- =============================================
+-- PROFILES TABLE (extends auth.users)
+-- =============================================
+CREATE TABLE public.profiles (
+    id UUID REFERENCES auth.users(id) PRIMARY KEY,
+    bio TEXT,
+    profile_picture_url VARCHAR(255),
+    location VARCHAR(100),
+    average_rating DECIMAL(3,2) DEFAULT 0.00,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- =============================================
+-- USER SKILLS TABLE
+-- =============================================
+CREATE TABLE public.user_skills (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    skill_id BIGINT NOT NULL,
+    skill_level VARCHAR(50) DEFAULT 'LEARN', -- LEARN, TEACH, etc.
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- =============================================
+-- SKILLS TABLE
+-- =============================================
+CREATE TABLE public.skills (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    category VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- =============================================
+-- USERS TABLE (additional user data beyond auth.users)
+-- =============================================
+CREATE TABLE public.users (
+    id UUID REFERENCES auth.users(id) PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255), -- This will be managed by Supabase Auth
+    name VARCHAR(255),
+    is_verified BOOLEAN DEFAULT FALSE,
+    verification_code VARCHAR(255),
+    verification_requested_at TIMESTAMP WITH TIME ZONE,
+    request_attempts INTEGER DEFAULT 0,
+    email_verified_at TIMESTAMP WITH TIME ZONE,
+    remember_token VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- =============================================
+-- AVAILABILITY TABLE
+-- =============================================
+CREATE TABLE public.availability (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    day_of_week VARCHAR(10) NOT NULL, -- MON, TUE, WED, THU, FRI, SAT, SUN
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    is_recurring BOOLEAN DEFAULT TRUE,
+    date_specific DATE, -- for one-time availability
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT check_day_of_week CHECK (day_of_week IN ('MON','TUE','WED','THU','FRI','SAT','SUN')),
+    CONSTRAINT check_time_order CHECK (start_time < end_time)
+);
+
+-- =============================================
+-- CHAT ROOMS TABLE
+-- =============================================
+CREATE TABLE public.chat_rooms (
+    id BIGSERIAL PRIMARY KEY,
+    skill_1_id BIGINT REFERENCES public.skills(id) NOT NULL,
+    skill_2_id BIGINT REFERENCES public.skills(id) NOT NULL,
+    user2_id UUID REFERENCES auth.users(id) NOT NULL,
+    creator_id UUID REFERENCES auth.users(id) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT different_skills CHECK (skill_1_id != skill_2_id)
+);
+
+-- =============================================
+-- CHAT MESSAGES TABLE
+-- =============================================
+CREATE TABLE public.chat_messages (
+    id BIGSERIAL PRIMARY KEY,
+    chat_room_id BIGINT REFERENCES public.chat_rooms(id) ON DELETE CASCADE NOT NULL,
+    sender_id UUID REFERENCES auth.users(id) NOT NULL,
+    message_text TEXT NOT NULL,
+    sent_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE
+);
+
+-- =============================================
+-- REVIEWS TABLE
+-- =============================================
+CREATE TABLE public.reviews (
+    id BIGSERIAL PRIMARY KEY,
+    reviewer_id UUID REFERENCES auth.users(id) NOT NULL,
+    reviewed_user_id UUID REFERENCES auth.users(id) NOT NULL,
+    rating INTEGER NOT NULL,
+    comment TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT check_rating CHECK (rating >= 1 AND rating <= 5),
+    CONSTRAINT no_self_review CHECK (reviewer_id != reviewed_user_id)
+);
+
+-- =============================================
+-- RATINGS TABLE (separate from reviews for flexibility)
+-- =============================================
+CREATE TABLE public.ratings (
+    id BIGSERIAL PRIMARY KEY,
+    reviewer_id UUID REFERENCES auth.users(id) NOT NULL,
+    reviewed_id UUID REFERENCES auth.users(id) NOT NULL,
+    stars INTEGER NOT NULL,
+    comment TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT check_stars CHECK (stars >= 1 AND stars <= 5),
+    CONSTRAINT no_self_rating CHECK (reviewer_id != reviewed_id)
+);
+
+-- =============================================
+-- INDEXES for better performance
+-- =============================================
+CREATE INDEX idx_profiles_user_id ON public.profiles(id);
+CREATE INDEX idx_user_skills_user_id ON public.user_skills(user_id);
+CREATE INDEX idx_user_skills_skill_id ON public.user_skills(skill_id);
+CREATE INDEX idx_availability_user_id ON public.availability(user_id);
+CREATE INDEX idx_availability_day ON public.availability(day_of_week);
+CREATE INDEX idx_chat_rooms_users ON public.chat_rooms(user2_id, creator_id);
+CREATE INDEX idx_chat_messages_room_id ON public.chat_messages(chat_room_id);
+CREATE INDEX idx_chat_messages_sender ON public.chat_messages(sender_id);
+CREATE INDEX idx_chat_messages_sent_at ON public.chat_messages(sent_at);
+CREATE INDEX idx_reviews_reviewer ON public.reviews(reviewer_id);
+CREATE INDEX idx_reviews_reviewed_user ON public.reviews(reviewed_user_id);
+CREATE INDEX idx_ratings_reviewer ON public.ratings(reviewer_id);
+CREATE INDEX idx_ratings_reviewed ON public.ratings(reviewed_id);
+
+-- =============================================
+-- ROW LEVEL SECURITY POLICIES
+-- =============================================
+
+-- Enable RLS on all tables
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_skills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.skills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.availability ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
+
+-- Profiles policies
+CREATE POLICY "Users can view all profiles" ON public.profiles
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can update own profile" ON public.profiles
+    FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert own profile" ON public.profiles
+    FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- User skills policies
+CREATE POLICY "Users can view all user skills" ON public.user_skills
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can manage own skills" ON public.user_skills
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Skills policies (read-only for most users)
+CREATE POLICY "Anyone can view skills" ON public.skills
+    FOR SELECT USING (true);
+
+-- Users table policies
+CREATE POLICY "Users can view all users" ON public.users
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can update own data" ON public.users
+    FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert own data" ON public.users
+    FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- Availability policies
+CREATE POLICY "Users can view all availability" ON public.availability
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can manage own availability" ON public.availability
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Chat rooms policies
+CREATE POLICY "Users can view rooms they're part of" ON public.chat_rooms
+    FOR SELECT USING (auth.uid() = user2_id OR auth.uid() = creator_id);
+
+CREATE POLICY "Users can create chat rooms" ON public.chat_rooms
+    FOR INSERT WITH CHECK (auth.uid() = creator_id);
+
+CREATE POLICY "Users can update rooms they created" ON public.chat_rooms
+    FOR UPDATE USING (auth.uid() = creator_id);
+
+-- Chat messages policies
+CREATE POLICY "Users can view messages in their rooms" ON public.chat_messages
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.chat_rooms cr 
+            WHERE cr.id = chat_room_id 
+            AND (cr.user2_id = auth.uid() OR cr.creator_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Users can send messages to their rooms" ON public.chat_messages
+    FOR INSERT WITH CHECK (
+        auth.uid() = sender_id AND
+        EXISTS (
+            SELECT 1 FROM public.chat_rooms cr 
+            WHERE cr.id = chat_room_id 
+            AND (cr.user2_id = auth.uid() OR cr.creator_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Users can update own messages" ON public.chat_messages
+    FOR UPDATE USING (auth.uid() = sender_id);
+
+-- Reviews policies
+CREATE POLICY "Users can view all reviews" ON public.reviews
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can create reviews" ON public.reviews
+    FOR INSERT WITH CHECK (auth.uid() = reviewer_id);
+
+CREATE POLICY "Users can update own reviews" ON public.reviews
+    FOR UPDATE USING (auth.uid() = reviewer_id);
+
+-- Ratings policies
+CREATE POLICY "Users can view all ratings" ON public.ratings
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can create ratings" ON public.ratings
+    FOR INSERT WITH CHECK (auth.uid() = reviewer_id);
+
+CREATE POLICY "Users can update own ratings" ON public.ratings
+    FOR UPDATE USING (auth.uid() = reviewer_id);
+
+-- =============================================
+-- FUNCTIONS AND TRIGGERS
+-- =============================================
+
+-- Function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION public.handle_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = timezone('utc'::text, now());
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Add updated_at triggers
+CREATE TRIGGER handle_updated_at_profiles 
+    BEFORE UPDATE ON public.profiles 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_user_skills 
+    BEFORE UPDATE ON public.user_skills 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_skills 
+    BEFORE UPDATE ON public.skills 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_users 
+    BEFORE UPDATE ON public.users 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_availability 
+    BEFORE UPDATE ON public.availability 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_chat_rooms 
+    BEFORE UPDATE ON public.chat_rooms 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_reviews 
+    BEFORE UPDATE ON public.reviews 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+CREATE TRIGGER handle_updated_at_ratings 
+    BEFORE UPDATE ON public.ratings 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+-- Function to create profile on user signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (id)
+    VALUES (NEW.id);
+    
+    INSERT INTO public.users (id, email, name, email_verified_at)
+    VALUES (
+        NEW.id, 
+        NEW.email,
+        COALESCE(NEW.raw_user_meta_data->>'name', NEW.raw_user_meta_data->>'full_name'),
+        NEW.email_confirmed_at
+    );
+    
+    RETURN NEW;
+END;
+$$ language 'plpgsql' security definer;
+
+-- Trigger to create profile on user signup
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- Function to update average rating
+CREATE OR REPLACE FUNCTION public.update_average_rating()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Update average rating in profiles table
+    UPDATE public.profiles 
+    SET average_rating = (
+        SELECT COALESCE(AVG(rating), 0)::DECIMAL(3,2)
+        FROM public.reviews 
+        WHERE reviewed_user_id = COALESCE(NEW.reviewed_user_id, OLD.reviewed_user_id)
+    )
+    WHERE id = COALESCE(NEW.reviewed_user_id, OLD.reviewed_user_id);
+    
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ language 'plpgsql' security definer;
+
+-- Trigger to update average rating on review changes
+CREATE TRIGGER update_rating_on_review_change
+    AFTER INSERT OR UPDATE OR DELETE ON public.reviews
+    FOR EACH ROW EXECUTE PROCEDURE public.update_average_rating();
+
+-- =============================================
+-- SAMPLE DATA
+-- =============================================
+
+-- Insert some sample skills
+INSERT INTO public.skills (name, category) VALUES
+('JavaScript', 'Programming'),
+('Flutter', 'Framework'),
+('React', 'Frontend'),
+('Node.js', 'Backend'),
+('PostgreSQL', 'Database'),
+('Guitar', 'Music'),
+('Piano', 'Music'),
+('German', 'Language'),
+('Mandarin', 'Language'),
+('Cooking', 'Life Skills'),
+('Photography', 'Creative'),
+('Boxing', 'Fitness');
+
+-- Grant necessary permissions
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+
+-- =============================================
+-- Database Functions for Profile Management
+-- =============================================
+
+-- Function to upsert (create or update) user profile with skills and availability
+CREATE OR REPLACE FUNCTION upsert_user_profile(
+    p_user_id UUID,
+    p_name TEXT,
+    p_bio TEXT DEFAULT NULL,
+    p_location TEXT DEFAULT NULL,
+    p_profile_picture_url TEXT DEFAULT NULL,
+    p_skills_to_teach TEXT[] DEFAULT '{}',
+    p_skills_to_learn TEXT[] DEFAULT '{}',
+    p_availability JSONB[] DEFAULT '{}'
+)
+RETURNS VOID AS $$
+DECLARE
+    skill_name TEXT;
+    skill_id BIGINT;
+    availability_item JSONB;
+BEGIN
+    -- Update profiles table
+    UPDATE public.profiles 
+    SET 
+        bio = p_bio,
+        location = p_location,
+        profile_picture_url = p_profile_picture_url,
+        updated_at = timezone('utc'::text, now())
+    WHERE id = p_user_id;
+
+    -- Update users table
+    UPDATE public.users 
+    SET 
+        name = p_name,
+        updated_at = timezone('utc'::text, now())
+    WHERE id = p_user_id;
+
+    -- Clear existing user skills
+    DELETE FROM public.user_skills WHERE user_id = p_user_id;
+
+    -- Add skills to teach
+    FOREACH skill_name IN ARRAY p_skills_to_teach
+    LOOP
+        -- Get or create skill
+        INSERT INTO public.skills (name, category) 
+        VALUES (skill_name, 'General')
+        ON CONFLICT (name) DO NOTHING;
+        
+        SELECT id INTO skill_id 
+        FROM public.skills 
+        WHERE name = skill_name;
+        
+        -- Add user skill relationship
+        INSERT INTO public.user_skills (user_id, skill_id, skill_level)
+        VALUES (p_user_id, skill_id, 'TEACH');
+    END LOOP;
+
+    -- Add skills to learn
+    FOREACH skill_name IN ARRAY p_skills_to_learn
+    LOOP
+        -- Get or create skill
+        INSERT INTO public.skills (name, category) 
+        VALUES (skill_name, 'General')
+        ON CONFLICT (name) DO NOTHING;
+        
+        SELECT id INTO skill_id 
+        FROM public.skills 
+        WHERE name = skill_name;
+        
+        -- Add user skill relationship
+        INSERT INTO public.user_skills (user_id, skill_id, skill_level)
+        VALUES (p_user_id, skill_id, 'LEARN');
+    END LOOP;
+
+    -- Clear existing availability
+    DELETE FROM public.availability WHERE user_id = p_user_id;
+
+    -- Add new availability
+    FOREACH availability_item IN ARRAY p_availability
+    LOOP
+        INSERT INTO public.availability (
+            user_id,
+            day_of_week,
+            start_time,
+            end_time,
+            is_recurring,
+            date_specific
+        ) VALUES (
+            p_user_id,
+            availability_item->>'day_of_week',
+            (availability_item->>'start_time')::TIME,
+            (availability_item->>'end_time')::TIME,
+            COALESCE((availability_item->>'is_recurring')::BOOLEAN, true),
+            CASE 
+                WHEN availability_item->>'date_specific' IS NOT NULL 
+                THEN (availability_item->>'date_specific')::DATE 
+                ELSE NULL 
+            END
+        );
+    END LOOP;
+
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant execute permissions on functions
+GRANT EXECUTE ON FUNCTION upsert_user_profile TO authenticated;
+
+-- Create a bucket for profile pictures
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
