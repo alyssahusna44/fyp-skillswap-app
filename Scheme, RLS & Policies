@@ -527,3 +527,12 @@ CREATE POLICY "Anyone can view avatars"
 ON storage.objects FOR SELECT
 TO public
 USING (bucket_id = 'avatars');
+
+-- Add phone_number column to profiles table
+ALTER TABLE public.profiles 
+ADD COLUMN phone_number VARCHAR(20);
+
+-- Add a check constraint for basic validation
+ALTER TABLE public.profiles 
+ADD CONSTRAINT check_phone_format 
+CHECK (phone_number IS NULL OR phone_number ~ '^\+?[0-9\s\-\(\)]+$');
