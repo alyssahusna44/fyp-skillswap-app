@@ -536,3 +536,30 @@ ADD COLUMN phone_number VARCHAR(20);
 ALTER TABLE public.profiles 
 ADD CONSTRAINT check_phone_format 
 CHECK (phone_number IS NULL OR phone_number ~ '^\+?[0-9\s\-\(\)]+$');
+
+CREATE OR REPLACE FUNCTION upsert_user_profile(
+    p_user_id UUID,
+    p_name TEXT,
+    p_bio TEXT DEFAULT NULL,
+    p_location TEXT DEFAULT NULL,
+    p_phone_number TEXT DEFAULT NULL,  -- Add this parameter
+    p_profile_picture_url TEXT DEFAULT NULL,
+    p_skills_to_teach TEXT[] DEFAULT '{}',
+    p_skills_to_learn TEXT[] DEFAULT '{}',
+    p_availability JSONB[] DEFAULT '{}'
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Update profiles table
+    UPDATE public.profiles 
+    SET 
+        bio = p_bio,
+        location = p_location,
+        phone_number = p_phone_number,  -- Add this
+        profile_picture_url = p_profile_picture_url,
+        updated_at = timezone('utc'::text, now())
+    WHERE id = p_user_id;
+    
+    -- ... rest of function
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
