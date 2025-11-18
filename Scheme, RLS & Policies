@@ -563,3 +563,180 @@ BEGIN
     -- ... rest of function
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =============================================
+-- ADDITIONAL RLS POLICIES FOR SEARCH FEATURE
+-- Run these in your Supabase SQL Editor
+-- =============================================
+
+-- Allow authenticated users to insert new skills
+-- (Currently your profile form can create new skills, but there's no INSERT policy)
+CREATE POLICY "Authenticated users can create skills" ON public.skills
+    FOR INSERT 
+    TO authenticated
+    WITH CHECK (true);
+
+-- =============================================
+-- ADDITIONAL INDEXES FOR SEARCH PERFORMANCE
+-- =============================================
+
+-- Index for filtering users by skills (speeds up skill-based searches)
+CREATE INDEX IF NOT EXISTS idx_user_skills_skill_level 
+    ON public.user_skills(skill_level);
+
+-- Composite index for skill filtering
+CREATE INDEX IF NOT EXISTS idx_user_skills_user_skill_level 
+    ON public.user_skills(user_id, skill_level);
+
+-- Index for location-based searches (case-insensitive)
+CREATE INDEX IF NOT EXISTS idx_profiles_location_lower 
+    ON public.profiles(LOWER(location));
+
+-- Index for user name searches (case-insensitive)
+CREATE INDEX IF NOT EXISTS idx_users_name_lower 
+    ON public.users(LOWER(name));
+
+-- =============================================
+-- OPTIONAL: ADD FULL TEXT SEARCH CAPABILITIES
+-- =============================================
+
+-- Add a full-text search column for user names (more advanced searching)
+ALTER TABLE public.users 
+ADD COLUMN IF NOT EXISTS name_search_vector tsvector 
+GENERATED ALWAYS AS (to_tsvector('english', COALESCE(name, ''))) STORED;
+
+-- Index for full-text search
+CREATE INDEX IF NOT EXISTS idx_users_name_search 
+    ON public.users USING GIN(name_search_vector);
+
+-- Add a full-text search column for profiles bio
+ALTER TABLE public.profiles 
+ADD COLUMN IF NOT EXISTS bio_search_vector tsvector 
+GENERATED ALWAYS AS (to_tsvector('english', COALESCE(bio, ''))) STORED;
+
+-- Index for bio full-text search
+CREATE INDEX IF NOT EXISTS idx_profiles_bio_search 
+    ON public.profiles USING GIN(bio_search_vector);
+
+-- =============================================
+-- VERIFY YOUR CURRENT RLS POLICIES ARE ACTIVE
+-- =============================================
+
+-- Check if RLS is enabled on all tables (should return true for all)
+SELECT tablename, rowsecurity 
+FROM pg_tables 
+WHERE schemaname = 'public' 
+AND tablename IN ('profiles', 'users', 'user_skills', 'skills', 'availability');
+
+-- View all current policies
+SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
+FROM pg_policies
+WHERE schemaname = 'public'
+ORDER BY tablename, policyname;
+
+-- =============================================
+-- OPTIONAL: ADD RATE LIMITING FOR SEARCH
+-- (Prevents abuse of the search feature)
+-- =============================================
+
+-- Create a table to track search requests
+CREATE TABLE IF NOT EXISTS public.search_rate_limit (
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    search_count INTEGER DEFAULT 0,
+    window_start TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    PRIMARY KEY (user_id, window_start)
+);
+
+-- Enable RLS
+ALTER TABLE public.search_rate_limit ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can only see their own rate limit data
+CREATE POLICY "Users can view own rate limits" ON public.search_rate_limit
+    FOR SELECT USING (auth.uid() = user_id);
+
+-- Policy: Users can insert their own rate limit data
+CREATE POLICY "Users can insert own rate limits" ON public.search_rate_limit
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Policy: Users can update their own rate limit data
+CREATE POLICY "Users can update own rate limits" ON public.search_rate_limit
+    FOR UPDATE USING (auth.uid() = user_id);
+
+-- Function to check and increment rate limit
+CREATE OR REPLACE FUNCTION check_search_rate_limit(
+    max_searches INTEGER DEFAULT 100,
+    window_minutes INTEGER DEFAULT 60
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    current_count INTEGER;
+    user_uuid UUID;
+BEGIN
+    user_uuid := auth.uid();
+    
+    IF user_uuid IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    
+    -- Clean old windows
+    DELETE FROM public.search_rate_limit 
+    WHERE user_id = user_uuid 
+    AND window_start < timezone('utc'::text, now()) - (window_minutes || ' minutes')::INTERVAL;
+    
+    -- Get current count
+    SELECT COALESCE(SUM(search_count), 0) 
+    INTO current_count
+    FROM public.search_rate_limit
+    WHERE user_id = user_uuid
+    AND window_start >= timezone('utc'::text, now()) - (window_minutes || ' minutes')::INTERVAL;
+    
+    -- Check if limit exceeded
+    IF current_count >= max_searches THEN
+        RETURN FALSE;
+    END IF;
+    
+    -- Increment counter
+    INSERT INTO public.search_rate_limit (user_id, search_count)
+    VALUES (user_uuid, 1)
+    ON CONFLICT (user_id, window_start) 
+    DO UPDATE SET search_count = public.search_rate_limit.search_count + 1;
+    
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant execute permission
+GRANT EXECUTE ON FUNCTION check_search_rate_limit TO authenticated;
+
+-- =============================================
+-- VERIFICATION QUERIES
+-- =============================================
+
+-- Test that your search queries work
+-- Run this to see if the basic search structure is working
+SELECT 
+    p.id,
+    u.name,
+    p.location,
+    p.bio,
+    p.average_rating,
+    ARRAY_AGG(DISTINCT s.name) FILTER (WHERE us.skill_level = 'TEACH') as skills_to_teach,
+    ARRAY_AGG(DISTINCT s.name) FILTER (WHERE us.skill_level = 'LEARN') as skills_to_learn
+FROM public.profiles p
+LEFT JOIN public.users u ON u.id = p.id
+LEFT JOIN public.user_skills us ON us.user_id = p.id
+LEFT JOIN public.skills s ON s.id = us.skill_id
+GROUP BY p.id, u.name, p.location, p.bio, p.average_rating
+LIMIT 10;
+
+-- =============================================
+-- CLEANUP (OPTIONAL - only if you need to undo)
+-- =============================================
+
+-- To remove the rate limiting feature if you don't want it:
+-- DROP FUNCTION IF EXISTS check_search_rate_limit;
+-- DROP TABLE IF EXISTS public.search_rate_limit;
+
+-- To remove full-text search columns:
+-- ALTER TABLE public.users DROP COLUMN IF EXISTS name_search_vector;
+-- ALTER TABLE public.profiles DROP COLUMN IF EXISTS bio_search_vector;
