@@ -58,9 +58,11 @@ class _HomeScreenState extends State<HomeScreen> {
           // Add recurring availability for next 60 days
           final dayOfWeek = _getDayNumber(avail['day_of_week']);
 
-          for (DateTime date = today;
-              date.isBefore(endDate);
-              date = date.add(const Duration(days: 1))) {
+          for (
+            DateTime date = today;
+            date.isBefore(endDate);
+            date = date.add(const Duration(days: 1))
+          ) {
             if (date.weekday == dayOfWeek) {
               final dateKey = DateTime(date.year, date.month, date.day);
               tempMap[dateKey] = tempMap[dateKey] ?? [];
@@ -124,43 +126,9 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: Stack(
-              children: [
-                const Icon(Icons.notifications_outlined),
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    constraints: const BoxConstraints(
-                      minWidth: 12,
-                      minHeight: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Notifications feature coming soon!'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-          ),
-        ],
       ),
       // Use the separated drawer widget with callback
-      drawer: AppDrawer(
-        onProfileUpdate: _loadAvailability,
-      ),
+      drawer: AppDrawer(onProfileUpdate: _loadAvailability),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16.0),
@@ -174,10 +142,9 @@ class _HomeScreenState extends State<HomeScreen> {
               // Calendar Section
               Text(
                 'Your Availability',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
 
@@ -201,10 +168,9 @@ class _HomeScreenState extends State<HomeScreen> {
               // Quick Actions
               Text(
                 'Quick Actions',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               _buildQuickActions(),
@@ -221,9 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Theme.of(context).primaryColor,
-          ],
+          colors: [Theme.of(context).primaryColor],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -331,49 +295,51 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(color: Colors.grey),
               )
             else
-              ...availability.map((slot) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Row(
-                      children: [
-                        Icon(
-                          slot['is_recurring']
-                              ? Icons.repeat
-                              : Icons.event_available,
-                          size: 16,
+              ...availability.map(
+                (slot) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Row(
+                    children: [
+                      Icon(
+                        slot['is_recurring']
+                            ? Icons.repeat
+                            : Icons.event_available,
+                        size: 16,
+                        color: slot['is_recurring']
+                            ? Colors.blue
+                            : Colors.green,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${slot['start_time']} - ${slot['end_time']}',
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
                           color: slot['is_recurring']
-                              ? Colors.blue
-                              : Colors.green,
+                              ? Colors.blue.withOpacity(0.1)
+                              : Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${slot['start_time']} - ${slot['end_time']}',
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
+                        child: Text(
+                          slot['is_recurring'] ? 'Weekly' : 'One-time',
+                          style: TextStyle(
+                            fontSize: 12,
                             color: slot['is_recurring']
-                                ? Colors.blue.withOpacity(0.1)
-                                : Colors.green.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            slot['is_recurring'] ? 'Weekly' : 'One-time',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: slot['is_recurring']
-                                  ? Colors.blue[700]
-                                  : Colors.green[700],
-                            ),
+                                ? Colors.blue[700]
+                                : Colors.green[700],
                           ),
                         ),
-                      ],
-                    ),
-                  )),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),

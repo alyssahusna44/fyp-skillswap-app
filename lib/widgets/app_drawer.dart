@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-//import '../log_reg/auth_wrapper.dart';
+import '../auth/auth_wrapper.dart';
 import '../profile/profile_wrapper.dart';
 import '../search/search_screen.dart';
 
@@ -67,12 +67,12 @@ class _AppDrawerState extends State<AppDrawer> {
       await Supabase.instance.client.auth.signOut();
       if (!mounted) return;
 
-      /*// 2. Navigate to AuthWrapperScreen and remove all previous routes
+      // 2. Navigate to AuthWrapperScreen and remove all previous routes
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const AuthWrapperScreen()),
         (route) => false, // This predicate removes all routes from the stack
-      );*/
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
