@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:unikl_skillswap/auth/legal_texts.dart';
 //import 'package:supabase_flutter/supabase_flutter.dart'; // ADDED: For Auth State Listening
 import 'signin_screen.dart';
 import 'signup_screen.dart';
@@ -180,7 +181,7 @@ class _AuthWrapperScreenState extends State<AuthWrapperScreen>
                           _showDialog(
                             context,
                             'Terms of Service',
-                            'Terms of Service contents.',
+                            skillSwapTermsOfService,
                           );
                         },
                         child: Text(
@@ -203,7 +204,7 @@ class _AuthWrapperScreenState extends State<AuthWrapperScreen>
                           _showDialog(
                             context,
                             'Privacy Policy',
-                            'Privacy Policy contents.',
+                            skillSwapPrivacyPolicy,
                           );
                         },
                         child: Text(
