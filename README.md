@@ -1,3 +1,3 @@
 # unikl_tutorfind
 
-A new Flutter project.
+A Flutter project in progress.
