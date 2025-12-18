@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../profile/user_profile_view_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -70,34 +71,58 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
 
-      // Build the query
-      var query = _supabase.from('profiles').select('''
+      // STEP 1: Get profiles
+      var profileQuery = _supabase.from('profiles').select('''
             id,
             bio,
             location,
             profile_picture_url,
-            average_rating,
-            users!inner(name)
+            average_rating
           ''');
 
       // Exclude current user
       if (currentUserId != null) {
-        query = query.neq('id', currentUserId);
+        profileQuery = profileQuery.neq('id', currentUserId);
       }
 
       // Apply location filter
       if (_selectedLocationFilter != null &&
           _selectedLocationFilter!.isNotEmpty) {
-        query = query.ilike('location', '%$_selectedLocationFilter%');
+        profileQuery = profileQuery.ilike(
+          'location',
+          '%$_selectedLocationFilter%',
+        );
       }
 
-      final profilesData = await query;
+      final profilesData = await profileQuery;
 
-      // Get user skills separately
+      // STEP 2: Get all user names in one query
+      final userIds = (profilesData as List).map((p) => p['id']).toList();
+
+      final usersData = await _supabase
+          .from('users')
+          .select('id, name')
+          .inFilter('id', userIds);
+
+      // Create a map for quick lookup
+      final usersMap = {
+        for (var user in usersData as List) user['id']: user['name'],
+      };
+
+      // STEP 3: Process each profile
       List<Map<String, dynamic>> results = [];
 
-      for (var profile in profilesData as List) {
+      for (var profile in profilesData) {
         final userId = profile['id'];
+        final userName = usersMap[userId] ?? 'Unknown';
+
+        // Apply text search filter on name
+        if (_searchController.text.isNotEmpty &&
+            !userName.toLowerCase().contains(
+              _searchController.text.toLowerCase(),
+            )) {
+          continue;
+        }
 
         // Get user skills
         var skillsQuery = _supabase
@@ -113,17 +138,24 @@ class _SearchScreenState extends State<SearchScreen> {
           skillsQuery = skillsQuery.eq('skill_level', _skillLevelFilter);
         }
 
-        // Apply skill name filter
-        if (_selectedSkillFilter != null && _selectedSkillFilter!.isNotEmpty) {
-          skillsQuery = skillsQuery.eq('skills.name', _selectedSkillFilter!);
-        }
-
         final skillsData = await skillsQuery;
 
+        // Apply skill name filter
+        if (_selectedSkillFilter != null && _selectedSkillFilter!.isNotEmpty) {
+          final hasSkill = (skillsData as List).any(
+            (s) => s['skills']['name'] == _selectedSkillFilter!,
+          );
+          if (!hasSkill) {
+            continue;
+          }
+        }
+
         // Only include users who match skill filters (if any applied)
-        if (_selectedSkillFilter != null || _skillLevelFilter != 'ALL') {
+        if ((_selectedSkillFilter != null &&
+                _selectedSkillFilter!.isNotEmpty) ||
+            _skillLevelFilter != 'ALL') {
           if ((skillsData as List).isEmpty) {
-            continue; // Skip this user
+            continue;
           }
         }
 
@@ -137,15 +169,6 @@ class _SearchScreenState extends State<SearchScreen> {
             .where((s) => s['skill_level'] == 'LEARN')
             .map((s) => s['skills']['name'] as String)
             .toList();
-
-        // Apply text search filter on name
-        final userName = profile['users']['name'] as String? ?? '';
-        if (_searchController.text.isNotEmpty &&
-            !userName.toLowerCase().contains(
-              _searchController.text.toLowerCase(),
-            )) {
-          continue;
-        }
 
         results.add({
           'id': userId,
@@ -626,8 +649,11 @@ class _UserCard extends StatelessWidget {
       child: InkWell(
         onTap: () {
           // Navigate to user profile detail
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('View profile: ${user['name']}')),
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => UserProfileViewScreen(userId: user['id']),
+            ),
           );
         },
         borderRadius: BorderRadius.circular(12),
