@@ -305,7 +305,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
         gradient: LinearGradient(
           colors: [
             Theme.of(context).primaryColor,
-            Theme.of(context).primaryColor.withOpacity(0.8),
+            Theme.of(context).primaryColor,
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -360,7 +360,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
@@ -610,7 +610,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                   eventLoader: _getAvailabilityForDay,
                   calendarStyle: CalendarStyle(
                     todayDecoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor.withOpacity(0.5),
+                      color: Theme.of(context).primaryColor,
                       shape: BoxShape.circle,
                     ),
                     selectedDecoration: BoxDecoration(
@@ -711,8 +711,8 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                       ),
                       decoration: BoxDecoration(
                         color: slot['is_recurring']
-                            ? Colors.blue.withOpacity(0.1)
-                            : Colors.green.withOpacity(0.1),
+                            ? Colors.blue
+                            : Colors.green,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
