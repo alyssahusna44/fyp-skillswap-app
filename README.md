@@ -1,3 +1,3 @@
-# unikl_tutorfind
+# unikl_skillswap
 
 A Flutter project in progress.
