@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:table_calendar/table_calendar.dart';
+import '../chat/chat_room_screen.dart';
+import '../reviews/write_review_screen.dart';
+import '../reviews/user_reviews_screen.dart';
 
 class UserProfileViewScreen extends StatefulWidget {
   final String userId;
@@ -360,7 +363,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
@@ -391,43 +394,152 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
   Widget _buildContactButtons() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _makePhoneCall,
-              icon: const Icon(Icons.phone),
-              label: const Text('Call'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _startChat,
+                  icon: const Icon(Icons.chat_bubble),
+                  label: const Text('Message'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    backgroundColor: Theme.of(context).primaryColor,
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _writeReview,
+                  icon: const Icon(Icons.star),
+                  label: const Text('Review'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    backgroundColor: Colors.amber[700],
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _sendSMS,
-              icon: const Icon(Icons.message),
-              label: const Text('SMS'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _sendEmail,
-              icon: const Icon(Icons.email),
-              label: const Text('Email'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              if (_phoneNumber != null && _phoneNumber!.isNotEmpty) ...[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _makePhoneCall,
+                    icon: const Icon(Icons.phone),
+                    label: const Text('Call'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _sendSMS,
+                    icon: const Icon(Icons.message),
+                    label: const Text('SMS'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ] else
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _sendEmail,
+                    icon: const Icon(Icons.email),
+                    label: const Text('Email'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _startChat() async {
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      // Get a skill from each user for the chat room
+      final mySkills = await _supabase
+          .from('user_skills')
+          .select('skill_id')
+          .eq('user_id', currentUserId)
+          .eq('skill_level', 'TEACH')
+          .limit(1)
+          .maybeSingle();
+
+      final theirSkills = await _supabase
+          .from('user_skills')
+          .select('skill_id')
+          .eq('user_id', widget.userId)
+          .eq('skill_level', 'LEARN')
+          .limit(1)
+          .maybeSingle();
+
+      if (mySkills == null || theirSkills == null) {
+        _showError('Cannot start chat: skill information missing');
+        return;
+      }
+
+      // Get or create chat room
+      final roomId =
+          await _supabase.rpc(
+                'get_or_create_chat_room',
+                params: {
+                  'p_user_1_id': currentUserId,
+                  'p_user_2_id': widget.userId,
+                  'p_skill_1_id': mySkills['skill_id'],
+                  'p_skill_2_id': theirSkills['skill_id'],
+                },
+              )
+              as int;
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatRoomScreen(
+            chatRoomId: roomId,
+            otherUserId: widget.userId,
+            otherUserName: _name ?? 'User',
+            otherUserProfilePic: _profilePictureUrl,
+          ),
+        ),
+      );
+    } catch (e) {
+      _showError('Failed to start chat: $e');
+    }
+  }
+
+  Future<void> _writeReview() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WriteReviewScreen(
+          reviewedUserId: widget.userId,
+          reviewedUserName: _name ?? 'User',
+          reviewedUserProfilePic: _profilePictureUrl,
+        ),
+      ),
+    );
+
+    if (result == true) {
+      // Reload profile to update rating
+      _loadUserProfile();
+    }
   }
 
   Widget _buildBioSection() {
@@ -610,7 +722,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                   eventLoader: _getAvailabilityForDay,
                   calendarStyle: CalendarStyle(
                     todayDecoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor,
+                      color: Theme.of(context).primaryColor.withOpacity(0.5),
                       shape: BoxShape.circle,
                     ),
                     selectedDecoration: BoxDecoration(
@@ -760,10 +872,13 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                   ),
                   TextButton(
                     onPressed: () {
-                      // TODO: Navigate to all reviews
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('View all reviews - Coming soon!'),
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => UserReviewsScreen(
+                            userId: widget.userId,
+                            userName: _name ?? 'User',
+                          ),
                         ),
                       );
                     },
@@ -772,18 +887,83 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              Center(
-                child: Column(
-                  children: [
-                    Icon(Icons.rate_review, size: 48, color: Colors.grey[400]),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Reviews feature coming soon!',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                  ],
+              if (_averageRating > 0)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.amber[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Column(
+                        children: [
+                          Text(
+                            _averageRating.toStringAsFixed(1),
+                            style: TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amber[700],
+                            ),
+                          ),
+                          Row(
+                            children: List.generate(5, (index) {
+                              return Icon(
+                                index < _averageRating.round()
+                                    ? Icons.star
+                                    : Icons.star_border,
+                                color: Colors.amber[700],
+                                size: 20,
+                              );
+                            }),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Overall Rating',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Based on user reviews',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.rate_review,
+                        size: 48,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'No reviews yet',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
             ],
           ),
         ),

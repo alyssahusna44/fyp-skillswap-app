@@ -1,8 +1,11 @@
+// Replace lib/widgets/app_drawer.dart content with this updated version:
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/auth_wrapper.dart';
 import '../profile/profile_wrapper.dart';
 import '../search/search_screen.dart';
+import '../chat/chat_list_screen.dart';
 
 class AppDrawer extends StatefulWidget {
   final VoidCallback? onProfileUpdate;
@@ -17,6 +20,7 @@ class _AppDrawerState extends State<AppDrawer> {
   String? _profilePictureUrl;
   String? _userName;
   bool _isLoadingProfile = true;
+  int _unreadCount = 0;
 
   User? get currentUser => Supabase.instance.client.auth.currentUser;
 
@@ -24,6 +28,7 @@ class _AppDrawerState extends State<AppDrawer> {
   void initState() {
     super.initState();
     _loadProfile();
+    _loadUnreadCount();
   }
 
   Future<void> _loadProfile() async {
@@ -61,17 +66,40 @@ class _AppDrawerState extends State<AppDrawer> {
     }
   }
 
+  Future<void> _loadUnreadCount() async {
+    try {
+      final userId = currentUser?.id;
+      if (userId == null) return;
+
+      final unreadData =
+          await Supabase.instance.client.rpc(
+                'get_unread_count',
+                params: {'p_user_id': userId},
+              )
+              as List;
+
+      int total = 0;
+      for (var item in unreadData) {
+        total += (item['unread_count'] as int);
+      }
+
+      if (mounted) {
+        setState(() => _unreadCount = total);
+      }
+    } catch (e) {
+      debugPrint('Error loading unread count: $e');
+    }
+  }
+
   Future<void> _signOut() async {
     try {
-      // 1. Sign out the user from Supabase
       await Supabase.instance.client.auth.signOut();
       if (!mounted) return;
 
-      // 2. Navigate to AuthWrapperScreen and remove all previous routes
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const AuthWrapperScreen()),
-        (route) => false, // This predicate removes all routes from the stack
+        (route) => false,
       );
     } catch (e) {
       if (!mounted) return;
@@ -172,7 +200,6 @@ class _AppDrawerState extends State<AppDrawer> {
                 context,
                 MaterialPageRoute(builder: (context) => const ProfilePage()),
               ).then((_) {
-                // Refresh profile data when returning
                 _loadProfile();
                 widget.onProfileUpdate?.call();
               });
@@ -189,13 +216,33 @@ class _AppDrawerState extends State<AppDrawer> {
             },
           ),
           _buildDrawerItem(
-            icon: Icons.star_outline,
-            title: 'Reviews',
+            icon: Icons.chat_bubble_outline,
+            title: 'Messages',
+            trailing: _unreadCount > 0
+                ? Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _unreadCount.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  )
+                : null,
             onTap: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Reviews feature coming soon!')),
-              );
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ChatListScreen()),
+              ).then((_) => _loadUnreadCount());
             },
           ),
           const Divider(),
@@ -230,6 +277,7 @@ class _AppDrawerState extends State<AppDrawer> {
     required VoidCallback onTap,
     Color? iconColor,
     Color? textColor,
+    Widget? trailing,
   }) {
     return ListTile(
       leading: Icon(icon, color: iconColor ?? Colors.grey[700]),
@@ -240,6 +288,7 @@ class _AppDrawerState extends State<AppDrawer> {
           fontWeight: FontWeight.w500,
         ),
       ),
+      trailing: trailing,
       onTap: onTap,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
     );
