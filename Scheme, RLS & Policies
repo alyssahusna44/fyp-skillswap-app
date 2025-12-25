@@ -740,3 +740,196 @@ LIMIT 10;
 -- To remove full-text search columns:
 -- ALTER TABLE public.users DROP COLUMN IF EXISTS name_search_vector;
 -- ALTER TABLE public.profiles DROP COLUMN IF EXISTS bio_search_vector;
+
+
+-- =============================================
+-- REVIEWS SYSTEM ENHANCEMENTS
+-- Run this in your Supabase SQL Editor
+-- =============================================
+
+-- Add a constraint to prevent duplicate reviews
+ALTER TABLE public.reviews 
+ADD CONSTRAINT unique_review_per_user 
+UNIQUE (reviewer_id, reviewed_user_id);
+
+-- =============================================
+-- HELPER FUNCTIONS FOR REVIEWS
+-- =============================================
+
+-- Function to check if user can review another user
+CREATE OR REPLACE FUNCTION can_review_user(
+    p_reviewer_id UUID,
+    p_reviewed_user_id UUID
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_has_interaction BOOLEAN;
+BEGIN
+    -- Check if users have interacted (had a chat)
+    SELECT EXISTS(
+        SELECT 1 
+        FROM public.chat_rooms
+        WHERE (user_1_id = p_reviewer_id AND user_2_id = p_reviewed_user_id)
+           OR (user_1_id = p_reviewed_user_id AND user_2_id = p_reviewer_id)
+    ) INTO v_has_interaction;
+    
+    -- Also check if already reviewed
+    IF EXISTS(
+        SELECT 1 
+        FROM public.reviews
+        WHERE reviewer_id = p_reviewer_id 
+        AND reviewed_user_id = p_reviewed_user_id
+    ) THEN
+        RETURN FALSE;
+    END IF;
+    
+    RETURN v_has_interaction;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get user's reviews with reviewer details
+CREATE OR REPLACE FUNCTION get_user_reviews(p_user_id UUID)
+RETURNS TABLE(
+    review_id BIGINT,
+    reviewer_id UUID,
+    reviewer_name TEXT,
+    reviewer_profile_pic TEXT,
+    rating INTEGER,
+    comment TEXT,
+    created_at TIMESTAMPTZ
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        r.id as review_id,
+        r.reviewer_id,
+        u.name as reviewer_name,
+        p.profile_picture_url as reviewer_profile_pic,
+        r.rating,
+        r.comment,
+        r.created_at
+    FROM public.reviews r
+    INNER JOIN public.users u ON u.id = r.reviewer_id
+    LEFT JOIN public.profiles p ON p.id = r.reviewer_id
+    WHERE r.reviewed_user_id = p_user_id
+    ORDER BY r.created_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get review statistics
+CREATE OR REPLACE FUNCTION get_review_stats(p_user_id UUID)
+RETURNS TABLE(
+    total_reviews BIGINT,
+    average_rating NUMERIC,
+    five_star INTEGER,
+    four_star INTEGER,
+    three_star INTEGER,
+    two_star INTEGER,
+    one_star INTEGER
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        COUNT(*)::BIGINT as total_reviews,
+        COALESCE(AVG(rating), 0)::NUMERIC(3,2) as average_rating,
+        COUNT(CASE WHEN rating = 5 THEN 1 END)::INTEGER as five_star,
+        COUNT(CASE WHEN rating = 4 THEN 1 END)::INTEGER as four_star,
+        COUNT(CASE WHEN rating = 3 THEN 1 END)::INTEGER as three_star,
+        COUNT(CASE WHEN rating = 2 THEN 1 END)::INTEGER as two_star,
+        COUNT(CASE WHEN rating = 1 THEN 1 END)::INTEGER as one_star
+    FROM public.reviews
+    WHERE reviewed_user_id = p_user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to submit or update a review
+CREATE OR REPLACE FUNCTION upsert_review(
+    p_reviewer_id UUID,
+    p_reviewed_user_id UUID,
+    p_rating INTEGER,
+    p_comment TEXT
+)
+RETURNS BIGINT AS $$
+DECLARE
+    v_review_id BIGINT;
+BEGIN
+    -- Validate rating
+    IF p_rating < 1 OR p_rating > 5 THEN
+        RAISE EXCEPTION 'Rating must be between 1 and 5';
+    END IF;
+    
+    -- Prevent self-review
+    IF p_reviewer_id = p_reviewed_user_id THEN
+        RAISE EXCEPTION 'Cannot review yourself';
+    END IF;
+    
+    -- Insert or update review
+    INSERT INTO public.reviews (
+        reviewer_id,
+        reviewed_user_id,
+        rating,
+        comment
+    ) VALUES (
+        p_reviewer_id,
+        p_reviewed_user_id,
+        p_rating,
+        p_comment
+    )
+    ON CONFLICT (reviewer_id, reviewed_user_id)
+    DO UPDATE SET
+        rating = EXCLUDED.rating,
+        comment = EXCLUDED.comment,
+        updated_at = timezone('utc'::text, now())
+    RETURNING id INTO v_review_id;
+    
+    RETURN v_review_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant permissions
+GRANT EXECUTE ON FUNCTION can_review_user TO authenticated;
+GRANT EXECUTE ON FUNCTION get_user_reviews TO authenticated;
+GRANT EXECUTE ON FUNCTION get_review_stats TO authenticated;
+GRANT EXECUTE ON FUNCTION upsert_review TO authenticated;
+
+-- =============================================
+-- REVIEW POLICY UPDATES
+-- =============================================
+
+-- Drop existing review policies
+DROP POLICY IF EXISTS "Users can create reviews" ON public.reviews;
+DROP POLICY IF EXISTS "Users can update own reviews" ON public.reviews;
+
+-- New policies with interaction check
+CREATE POLICY "Users can create reviews for users they've interacted with" 
+ON public.reviews
+    FOR INSERT WITH CHECK (
+        auth.uid() = reviewer_id 
+        AND can_review_user(auth.uid(), reviewed_user_id)
+    );
+
+CREATE POLICY "Users can update their own reviews" 
+ON public.reviews
+    FOR UPDATE USING (auth.uid() = reviewer_id);
+
+-- =============================================
+-- INDEXES FOR PERFORMANCE
+-- =============================================
+
+CREATE INDEX IF NOT EXISTS idx_reviews_created_at 
+    ON public.reviews(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_rating 
+    ON public.reviews(rating);
+
+-- =============================================
+-- VERIFICATION
+-- =============================================
+
+-- Test the functions
+SELECT * FROM get_review_stats('00000000-0000-0000-0000-000000000000');
+
+-- Check policies
+SELECT policyname, cmd, qual, with_check
+FROM pg_policies
+WHERE schemaname = 'public' AND tablename = 'reviews';
