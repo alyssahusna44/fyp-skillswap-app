@@ -933,3 +933,227 @@ SELECT * FROM get_review_stats('00000000-0000-0000-0000-000000000000');
 SELECT policyname, cmd, qual, with_check
 FROM pg_policies
 WHERE schemaname = 'public' AND tablename = 'reviews';
+
+
+-- =============================================
+-- RECREATE CHAT TABLES
+-- Run this in your Supabase SQL Editor
+-- =============================================
+
+-- Drop existing tables if they exist (in case of partial deletion)
+DROP TABLE IF EXISTS public.chat_messages CASCADE;
+DROP TABLE IF EXISTS public.chat_rooms CASCADE;
+
+-- =============================================
+-- CHAT ROOMS TABLE
+-- =============================================
+CREATE TABLE public.chat_rooms (
+    id BIGSERIAL PRIMARY KEY,
+    skill_1_id BIGINT REFERENCES public.skills(id) NOT NULL,
+    skill_2_id BIGINT REFERENCES public.skills(id) NOT NULL,
+    user_1_id UUID REFERENCES auth.users(id) NOT NULL,
+    user_2_id UUID REFERENCES auth.users(id) NOT NULL,
+    creator_id UUID REFERENCES auth.users(id) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    
+    CONSTRAINT different_skills CHECK (skill_1_id != skill_2_id),
+    CONSTRAINT different_users CHECK (user_1_id != user_2_id)
+);
+
+-- =============================================
+-- CHAT MESSAGES TABLE
+-- =============================================
+CREATE TABLE public.chat_messages (
+    id BIGSERIAL PRIMARY KEY,
+    chat_room_id BIGINT REFERENCES public.chat_rooms(id) ON DELETE CASCADE NOT NULL,
+    sender_id UUID REFERENCES auth.users(id) NOT NULL,
+    message_text TEXT NOT NULL,
+    sent_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    
+    CONSTRAINT message_not_empty CHECK (LENGTH(TRIM(message_text)) > 0)
+);
+
+-- =============================================
+-- INDEXES FOR PERFORMANCE
+-- =============================================
+CREATE INDEX idx_chat_rooms_users ON public.chat_rooms(user_1_id, user_2_id);
+CREATE INDEX idx_chat_rooms_creator ON public.chat_rooms(creator_id);
+CREATE INDEX idx_chat_rooms_updated ON public.chat_rooms(updated_at DESC);
+CREATE INDEX idx_chat_messages_room_id ON public.chat_messages(chat_room_id);
+CREATE INDEX idx_chat_messages_sender ON public.chat_messages(sender_id);
+CREATE INDEX idx_chat_messages_sent_at ON public.chat_messages(sent_at DESC);
+CREATE INDEX idx_chat_messages_is_read ON public.chat_messages(is_read);
+
+-- Create unique index to prevent duplicate chat rooms between same users
+-- This replaces the constraint that couldn't use expressions
+CREATE UNIQUE INDEX idx_unique_user_pair ON public.chat_rooms (
+    LEAST(user_1_id, user_2_id), 
+    GREATEST(user_1_id, user_2_id)
+);
+
+-- =============================================
+-- ROW LEVEL SECURITY
+-- =============================================
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+
+-- Chat Rooms Policies
+CREATE POLICY "Users can view rooms they're part of" ON public.chat_rooms
+    FOR SELECT USING (auth.uid() = user_1_id OR auth.uid() = user_2_id);
+
+CREATE POLICY "Users can create chat rooms" ON public.chat_rooms
+    FOR INSERT WITH CHECK (auth.uid() = creator_id AND (auth.uid() = user_1_id OR auth.uid() = user_2_id));
+
+CREATE POLICY "Users can update rooms they're part of" ON public.chat_rooms
+    FOR UPDATE USING (auth.uid() = user_1_id OR auth.uid() = user_2_id);
+
+-- Chat Messages Policies
+CREATE POLICY "Users can view messages in their rooms" ON public.chat_messages
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.chat_rooms cr 
+            WHERE cr.id = chat_room_id 
+            AND (cr.user_1_id = auth.uid() OR cr.user_2_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Users can send messages to their rooms" ON public.chat_messages
+    FOR INSERT WITH CHECK (
+        auth.uid() = sender_id AND
+        EXISTS (
+            SELECT 1 FROM public.chat_rooms cr 
+            WHERE cr.id = chat_room_id 
+            AND (cr.user_1_id = auth.uid() OR cr.user_2_id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Users can update own messages" ON public.chat_messages
+    FOR UPDATE USING (auth.uid() = sender_id);
+
+-- =============================================
+-- TRIGGERS
+-- =============================================
+
+-- Update chat room timestamp when new message is sent
+CREATE OR REPLACE FUNCTION public.update_chat_room_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE public.chat_rooms 
+    SET updated_at = timezone('utc'::text, now())
+    WHERE id = NEW.chat_room_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER update_chat_room_on_message
+    AFTER INSERT ON public.chat_messages
+    FOR EACH ROW EXECUTE PROCEDURE public.update_chat_room_timestamp();
+
+-- Auto-update updated_at for chat_rooms
+CREATE TRIGGER handle_updated_at_chat_rooms 
+    BEFORE UPDATE ON public.chat_rooms 
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_updated_at();
+
+-- =============================================
+-- HELPER FUNCTIONS
+-- =============================================
+
+-- Function to get or create a chat room between two users
+CREATE OR REPLACE FUNCTION get_or_create_chat_room(
+    p_user_1_id UUID,
+    p_user_2_id UUID,
+    p_skill_1_id BIGINT,
+    p_skill_2_id BIGINT
+)
+RETURNS BIGINT AS $$
+DECLARE
+    v_room_id BIGINT;
+    v_min_user UUID;
+    v_max_user UUID;
+BEGIN
+    -- Ensure consistent ordering for unique constraint
+    v_min_user := LEAST(p_user_1_id, p_user_2_id);
+    v_max_user := GREATEST(p_user_1_id, p_user_2_id);
+    
+    -- Try to find existing room
+    SELECT id INTO v_room_id
+    FROM public.chat_rooms
+    WHERE (user_1_id = v_min_user AND user_2_id = v_max_user)
+       OR (user_1_id = v_max_user AND user_2_id = v_min_user);
+    
+    -- If not found, create new room
+    IF v_room_id IS NULL THEN
+        INSERT INTO public.chat_rooms (
+            user_1_id,
+            user_2_id,
+            creator_id,
+            skill_1_id,
+            skill_2_id
+        ) VALUES (
+            v_min_user,
+            v_max_user,
+            auth.uid(),
+            p_skill_1_id,
+            p_skill_2_id
+        )
+        RETURNING id INTO v_room_id;
+    END IF;
+    
+    RETURN v_room_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to mark messages as read
+CREATE OR REPLACE FUNCTION mark_messages_as_read(
+    p_chat_room_id BIGINT,
+    p_user_id UUID
+)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE public.chat_messages
+    SET is_read = TRUE
+    WHERE chat_room_id = p_chat_room_id
+      AND sender_id != p_user_id
+      AND is_read = FALSE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get unread message count
+CREATE OR REPLACE FUNCTION get_unread_count(p_user_id UUID)
+RETURNS TABLE(chat_room_id BIGINT, unread_count BIGINT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        cm.chat_room_id,
+        COUNT(*) as unread_count
+    FROM public.chat_messages cm
+    INNER JOIN public.chat_rooms cr ON cr.id = cm.chat_room_id
+    WHERE (cr.user_1_id = p_user_id OR cr.user_2_id = p_user_id)
+      AND cm.sender_id != p_user_id
+      AND cm.is_read = FALSE
+    GROUP BY cm.chat_room_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant permissions
+GRANT EXECUTE ON FUNCTION get_or_create_chat_room TO authenticated;
+GRANT EXECUTE ON FUNCTION mark_messages_as_read TO authenticated;
+GRANT EXECUTE ON FUNCTION get_unread_count TO authenticated;
+
+-- =============================================
+-- VERIFICATION
+-- =============================================
+
+-- Verify tables are created
+SELECT tablename, rowsecurity 
+FROM pg_tables 
+WHERE schemaname = 'public' 
+AND tablename IN ('chat_rooms', 'chat_messages');
+
+-- Verify policies
+SELECT tablename, policyname
+FROM pg_policies
+WHERE schemaname = 'public'
+AND tablename IN ('chat_rooms', 'chat_messages');
