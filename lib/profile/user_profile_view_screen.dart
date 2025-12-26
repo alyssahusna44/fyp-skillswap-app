@@ -25,7 +25,6 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
   String? _name;
   String? _bio;
   String? _location;
-  String? _phoneNumber;
   String? _profilePictureUrl;
   double _averageRating = 0.0;
   List<String> _skillsToTeach = [];
@@ -49,9 +48,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
       // Load profile data
       final profileData = await _supabase
           .from('profiles')
-          .select(
-            'bio, profile_picture_url, location, phone_number, average_rating',
-          )
+          .select('bio, profile_picture_url, location, average_rating')
           .eq('id', widget.userId)
           .maybeSingle();
 
@@ -83,7 +80,6 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
         _name = userData?['name'];
         _bio = profileData?['bio'];
         _location = profileData?['location'];
-        _phoneNumber = profileData?['phone_number'];
         _profilePictureUrl = profileData?['profile_picture_url'];
         _averageRating = (profileData?['average_rating'] ?? 0.0).toDouble();
 
@@ -186,34 +182,6 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
     }
   }
 
-  Future<void> _makePhoneCall() async {
-    if (_phoneNumber == null || _phoneNumber!.isEmpty) {
-      _showError('No phone number available');
-      return;
-    }
-
-    final Uri phoneUri = Uri(scheme: 'tel', path: _phoneNumber);
-    if (await canLaunchUrl(phoneUri)) {
-      await launchUrl(phoneUri);
-    } else {
-      _showError('Cannot make phone call');
-    }
-  }
-
-  Future<void> _sendSMS() async {
-    if (_phoneNumber == null || _phoneNumber!.isEmpty) {
-      _showError('No phone number available');
-      return;
-    }
-
-    final Uri smsUri = Uri(scheme: 'sms', path: _phoneNumber);
-    if (await canLaunchUrl(smsUri)) {
-      await launchUrl(smsUri);
-    } else {
-      _showError('Cannot send SMS');
-    }
-  }
-
   Future<void> _sendEmail() async {
     try {
       final userData = await _supabase
@@ -244,6 +212,82 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
     }
   }
 
+  Future<void> _startChat() async {
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      // Get a skill from each user for the chat room
+      final mySkills = await _supabase
+          .from('user_skills')
+          .select('skill_id')
+          .eq('user_id', currentUserId)
+          .eq('skill_level', 'TEACH')
+          .limit(1)
+          .maybeSingle();
+
+      final theirSkills = await _supabase
+          .from('user_skills')
+          .select('skill_id')
+          .eq('user_id', widget.userId)
+          .eq('skill_level', 'LEARN')
+          .limit(1)
+          .maybeSingle();
+
+      if (mySkills == null || theirSkills == null) {
+        _showError('Cannot start chat: skill information missing');
+        return;
+      }
+
+      // Get or create chat room
+      final roomId =
+          await _supabase.rpc(
+                'get_or_create_chat_room',
+                params: {
+                  'p_user_1_id': currentUserId,
+                  'p_user_2_id': widget.userId,
+                  'p_skill_1_id': mySkills['skill_id'],
+                  'p_skill_2_id': theirSkills['skill_id'],
+                },
+              )
+              as int;
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatRoomScreen(
+            chatRoomId: roomId,
+            otherUserId: widget.userId,
+            otherUserName: _name ?? 'User',
+            otherUserProfilePic: _profilePictureUrl,
+          ),
+        ),
+      );
+    } catch (e) {
+      _showError('Failed to start chat: $e');
+    }
+  }
+
+  Future<void> _writeReview() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WriteReviewScreen(
+          reviewedUserId: widget.userId,
+          reviewedUserName: _name ?? 'User',
+          reviewedUserProfilePic: _profilePictureUrl,
+        ),
+      ),
+    );
+
+    if (result == true) {
+      // Reload profile to update rating
+      _loadUserProfile();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -251,21 +295,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_name ?? 'User Profile'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.star_border),
-            tooltip: 'Leave a Review',
-            onPressed: () {
-              // TODO: Navigate to review screen
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Review feature coming soon!')),
-              );
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text(_name ?? 'User Profile')),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -276,8 +306,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
             const SizedBox(height: 16),
 
             // Contact Buttons
-            if (_phoneNumber != null && _phoneNumber!.isNotEmpty)
-              _buildContactButtons(),
+            _buildContactButtons(),
 
             const SizedBox(height: 16),
 
@@ -290,7 +319,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
             // Availability Section
             _buildAvailabilitySection(),
 
-            // Reviews Section (placeholder)
+            // Reviews Section
             _buildReviewsSection(),
 
             const SizedBox(height: 80),
@@ -396,6 +425,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
+          // Primary actions: Message and Review
           Row(
             children: [
               Expanded(
@@ -404,7 +434,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                   icon: const Icon(Icons.chat_bubble),
                   label: const Text('Message'),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                     backgroundColor: Theme.of(context).primaryColor,
                   ),
                 ),
@@ -416,7 +446,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                   icon: const Icon(Icons.star),
                   label: const Text('Review'),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                     backgroundColor: Colors.amber[700],
                   ),
                 ),
@@ -424,122 +454,22 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              if (_phoneNumber != null && _phoneNumber!.isNotEmpty) ...[
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _makePhoneCall,
-                    icon: const Icon(Icons.phone),
-                    label: const Text('Call'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _sendSMS,
-                    icon: const Icon(Icons.message),
-                    label: const Text('SMS'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-              ] else
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _sendEmail,
-                    icon: const Icon(Icons.email),
-                    label: const Text('Email'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-            ],
+
+          // Secondary action: Email only
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _sendEmail,
+              icon: const Icon(Icons.email),
+              label: const Text('Send Email'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
           ),
         ],
       ),
     );
-  }
-
-  Future<void> _startChat() async {
-    try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
-
-      // Get a skill from each user for the chat room
-      final mySkills = await _supabase
-          .from('user_skills')
-          .select('skill_id')
-          .eq('user_id', currentUserId)
-          .eq('skill_level', 'TEACH')
-          .limit(1)
-          .maybeSingle();
-
-      final theirSkills = await _supabase
-          .from('user_skills')
-          .select('skill_id')
-          .eq('user_id', widget.userId)
-          .eq('skill_level', 'LEARN')
-          .limit(1)
-          .maybeSingle();
-
-      if (mySkills == null || theirSkills == null) {
-        _showError('Cannot start chat: skill information missing');
-        return;
-      }
-
-      // Get or create chat room
-      final roomId =
-          await _supabase.rpc(
-                'get_or_create_chat_room',
-                params: {
-                  'p_user_1_id': currentUserId,
-                  'p_user_2_id': widget.userId,
-                  'p_skill_1_id': mySkills['skill_id'],
-                  'p_skill_2_id': theirSkills['skill_id'],
-                },
-              )
-              as int;
-
-      if (!mounted) return;
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ChatRoomScreen(
-            chatRoomId: roomId,
-            otherUserId: widget.userId,
-            otherUserName: _name ?? 'User',
-            otherUserProfilePic: _profilePictureUrl,
-          ),
-        ),
-      );
-    } catch (e) {
-      _showError('Failed to start chat: $e');
-    }
-  }
-
-  Future<void> _writeReview() async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => WriteReviewScreen(
-          reviewedUserId: widget.userId,
-          reviewedUserName: _name ?? 'User',
-          reviewedUserProfilePic: _profilePictureUrl,
-        ),
-      ),
-    );
-
-    if (result == true) {
-      // Reload profile to update rating
-      _loadUserProfile();
-    }
   }
 
   Widget _buildBioSection() {
@@ -823,8 +753,8 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                       ),
                       decoration: BoxDecoration(
                         color: slot['is_recurring']
-                            ? Colors.blue
-                            : Colors.green,
+                            ? Colors.blue.withOpacity(0.1)
+                            : Colors.green.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
