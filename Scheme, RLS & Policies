@@ -1157,3 +1157,287 @@ SELECT tablename, policyname
 FROM pg_policies
 WHERE schemaname = 'public'
 AND tablename IN ('chat_rooms', 'chat_messages');
+
+
+-- =============================================
+
+-- STEP 1: RUN THIS FIRST TO CLEAN UP OLD FUNCTIONS
+
+-- =============================================
+
+-- Drop all versions of upsert_user_profile
+
+DROP FUNCTION IF EXISTS public.upsert_user_profile(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT[], TEXT[], JSONB[]);
+
+DROP FUNCTION IF EXISTS public.upsert_user_profile(UUID, TEXT, TEXT, TEXT, TEXT[], TEXT[], JSONB[]);
+
+DROP FUNCTION IF EXISTS public.upsert_user_profile;
+
+-- Verify it's gone
+
+SELECT routine_name, routine_type
+
+FROM information_schema.routines
+
+WHERE routine_schema = 'public'
+
+AND routine_name = 'upsert_user_profile';
+
+-- Should return empty result
+
+-- Also clean up verify function if it exists
+
+DROP FUNCTION IF EXISTS public.verify_user_profile(UUID);
+
+-- Message
+
+DO $$ 
+
+BEGIN 
+
+    RAISE NOTICE 'Old functions cleaned up successfully. Now run the improved functions.';
+
+END $$;
+
+
+
+-- =============================================
+-- IMPROVED PROFILE UPSERT FUNCTION
+-- First, drop the old function to avoid conflicts
+-- =============================================
+
+-- Drop the existing function (all overloads)
+DROP FUNCTION IF EXISTS upsert_user_profile(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT[], TEXT[], JSONB[]);
+DROP FUNCTION IF EXISTS upsert_user_profile;
+
+-- Create the improved version
+CREATE OR REPLACE FUNCTION upsert_user_profile(
+    p_user_id UUID,
+    p_name TEXT,
+    p_bio TEXT DEFAULT NULL,
+    p_location TEXT DEFAULT NULL,
+    p_phone_number TEXT DEFAULT NULL,
+    p_profile_picture_url TEXT DEFAULT NULL,
+    p_skills_to_teach TEXT[] DEFAULT '{}',
+    p_skills_to_learn TEXT[] DEFAULT '{}',
+    p_availability JSONB[] DEFAULT '{}'
+)
+RETURNS VOID AS $$
+DECLARE
+    skill_name TEXT;
+    skill_id BIGINT;
+    availability_item JSONB;
+    v_profile_exists BOOLEAN;
+    v_user_exists BOOLEAN;
+BEGIN
+    -- Check if profile exists
+    SELECT EXISTS(SELECT 1 FROM public.profiles WHERE id = p_user_id) INTO v_profile_exists;
+    
+    -- Check if user record exists
+    SELECT EXISTS(SELECT 1 FROM public.users WHERE id = p_user_id) INTO v_user_exists;
+    
+    -- UPSERT profiles table
+    IF v_profile_exists THEN
+        UPDATE public.profiles 
+        SET 
+            bio = p_bio,
+            location = p_location,
+            phone_number = p_phone_number,
+            profile_picture_url = p_profile_picture_url,
+            updated_at = timezone('utc'::text, now())
+        WHERE id = p_user_id;
+    ELSE
+        INSERT INTO public.profiles (id, bio, location, phone_number, profile_picture_url)
+        VALUES (p_user_id, p_bio, p_location, p_phone_number, p_profile_picture_url);
+    END IF;
+
+    -- UPSERT users table
+    IF v_user_exists THEN
+        UPDATE public.users 
+        SET 
+            name = p_name,
+            updated_at = timezone('utc'::text, now())
+        WHERE id = p_user_id;
+    ELSE
+        -- Get email from auth.users
+        INSERT INTO public.users (id, email, name)
+        SELECT p_user_id, email, p_name
+        FROM auth.users
+        WHERE id = p_user_id;
+    END IF;
+
+    -- Clear existing user skills (wrapped in transaction by caller)
+    DELETE FROM public.user_skills WHERE user_id = p_user_id;
+
+    -- Add skills to teach
+    FOREACH skill_name IN ARRAY p_skills_to_teach
+    LOOP
+        -- Trim whitespace
+        skill_name := TRIM(skill_name);
+        
+        IF skill_name IS NOT NULL AND skill_name != '' THEN
+            -- Get or create skill
+            INSERT INTO public.skills (name, category) 
+            VALUES (skill_name, 'General')
+            ON CONFLICT (name) DO NOTHING;
+            
+            SELECT id INTO skill_id 
+            FROM public.skills 
+            WHERE name = skill_name;
+            
+            -- Add user skill relationship (prevent duplicates)
+            INSERT INTO public.user_skills (user_id, skill_id, skill_level)
+            VALUES (p_user_id, skill_id, 'TEACH')
+            ON CONFLICT DO NOTHING;
+        END IF;
+    END LOOP;
+
+    -- Add skills to learn
+    FOREACH skill_name IN ARRAY p_skills_to_learn
+    LOOP
+        -- Trim whitespace
+        skill_name := TRIM(skill_name);
+        
+        IF skill_name IS NOT NULL AND skill_name != '' THEN
+            -- Get or create skill
+            INSERT INTO public.skills (name, category) 
+            VALUES (skill_name, 'General')
+            ON CONFLICT (name) DO NOTHING;
+            
+            SELECT id INTO skill_id 
+            FROM public.skills 
+            WHERE name = skill_name;
+            
+            -- Add user skill relationship (prevent duplicates)
+            INSERT INTO public.user_skills (user_id, skill_id, skill_level)
+            VALUES (p_user_id, skill_id, 'LEARN')
+            ON CONFLICT DO NOTHING;
+        END IF;
+    END LOOP;
+
+    -- Clear existing availability
+    DELETE FROM public.availability WHERE user_id = p_user_id;
+
+    -- Add new availability with validation
+    FOREACH availability_item IN ARRAY p_availability
+    LOOP
+        -- Validate required fields
+        IF (availability_item->>'day_of_week') IS NOT NULL AND
+           (availability_item->>'start_time') IS NOT NULL AND
+           (availability_item->>'end_time') IS NOT NULL THEN
+            
+            INSERT INTO public.availability (
+                user_id,
+                day_of_week,
+                start_time,
+                end_time,
+                is_recurring,
+                date_specific
+            ) VALUES (
+                p_user_id,
+                availability_item->>'day_of_week',
+                (availability_item->>'start_time')::TIME,
+                (availability_item->>'end_time')::TIME,
+                COALESCE((availability_item->>'is_recurring')::BOOLEAN, true),
+                CASE 
+                    WHEN availability_item->>'date_specific' IS NOT NULL 
+                    THEN (availability_item->>'date_specific')::DATE 
+                    ELSE NULL 
+                END
+            );
+        END IF;
+    END LOOP;
+
+    -- Log success (optional)
+    RAISE NOTICE 'Profile updated successfully for user: %', p_user_id;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log error and re-raise
+        RAISE NOTICE 'Error in upsert_user_profile: %', SQLERRM;
+        RAISE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant execute permission
+GRANT EXECUTE ON FUNCTION upsert_user_profile TO authenticated;
+
+
+-- =============================================
+-- ADD UNIQUE CONSTRAINT TO USER_SKILLS
+-- Prevents duplicate skill assignments
+-- =============================================
+
+-- First, remove any existing duplicates
+DELETE FROM public.user_skills a USING public.user_skills b
+WHERE a.id > b.id 
+  AND a.user_id = b.user_id 
+  AND a.skill_id = b.skill_id 
+  AND a.skill_level = b.skill_level;
+
+-- Add unique constraint
+ALTER TABLE public.user_skills 
+ADD CONSTRAINT unique_user_skill_level 
+UNIQUE (user_id, skill_id, skill_level);
+
+
+-- =============================================
+-- VERIFICATION FUNCTION
+-- Use this to check if profile was saved correctly
+-- =============================================
+
+CREATE OR REPLACE FUNCTION verify_user_profile(p_user_id UUID)
+RETURNS TABLE(
+    has_profile BOOLEAN,
+    has_user_record BOOLEAN,
+    skill_count BIGINT,
+    availability_count BIGINT,
+    profile_data JSONB,
+    skills_data JSONB,
+    availability_data JSONB
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        EXISTS(SELECT 1 FROM public.profiles WHERE id = p_user_id) as has_profile,
+        EXISTS(SELECT 1 FROM public.users WHERE id = p_user_id) as has_user_record,
+        (SELECT COUNT(*) FROM public.user_skills WHERE user_id = p_user_id) as skill_count,
+        (SELECT COUNT(*) FROM public.availability WHERE user_id = p_user_id) as availability_count,
+        (SELECT row_to_json(p) FROM public.profiles p WHERE id = p_user_id) as profile_data,
+        (SELECT jsonb_agg(jsonb_build_object(
+            'skill', s.name, 
+            'level', us.skill_level
+        ))
+        FROM public.user_skills us
+        JOIN public.skills s ON s.id = us.skill_id
+        WHERE us.user_id = p_user_id) as skills_data,
+        (SELECT jsonb_agg(row_to_json(a))
+        FROM public.availability a
+        WHERE user_id = p_user_id) as availability_data;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION verify_user_profile TO authenticated;
+
+
+-- =============================================
+-- DEBUGGING: Enable query logging
+-- Run this to see what's happening
+-- =============================================
+
+-- Create a simple logging table (optional)
+CREATE TABLE IF NOT EXISTS public.debug_logs (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID,
+    action TEXT,
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.debug_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own logs" ON public.debug_logs
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "System can insert logs" ON public.debug_logs
+    FOR INSERT WITH CHECK (true);
