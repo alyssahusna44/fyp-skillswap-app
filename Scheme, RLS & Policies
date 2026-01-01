@@ -1441,3 +1441,123 @@ CREATE POLICY "Users can view own logs" ON public.debug_logs
 
 CREATE POLICY "System can insert logs" ON public.debug_logs
     FOR INSERT WITH CHECK (true);
+
+-- Step 1: Remove the NOT NULL constraints from skill IDs
+
+ALTER TABLE public.chat_rooms 
+
+ALTER COLUMN skill_1_id DROP NOT NULL,
+
+ALTER COLUMN skill_2_id DROP NOT NULL;
+
+
+
+-- Step 2: Drop the old skill constraint and add a more flexible one
+
+-- This ensures that IF both skills are provided, they must be different.
+
+ALTER TABLE public.chat_rooms DROP CONSTRAINT IF EXISTS different_skills;
+
+
+
+ALTER TABLE public.chat_rooms 
+
+ADD CONSTRAINT different_skills 
+
+CHECK (
+
+    (skill_1_id IS NULL OR skill_2_id IS NULL) OR 
+
+    (skill_1_id != skill_2_id)
+
+);
+
+
+
+CREATE OR REPLACE FUNCTION get_or_create_chat_room(
+
+    p_user_1_id UUID,
+
+    p_user_2_id UUID,
+
+    p_skill_1_id BIGINT DEFAULT NULL, -- Changed to allow NULL
+
+    p_skill_2_id BIGINT DEFAULT NULL  -- Changed to allow NULL
+
+)
+
+RETURNS BIGINT AS $$
+
+DECLARE
+
+    v_room_id BIGINT;
+
+    v_min_user UUID;
+
+    v_max_user UUID;
+
+BEGIN
+
+    -- Ensure consistent ordering for unique constraint
+
+    v_min_user := LEAST(p_user_1_id, p_user_2_id);
+
+    v_max_user := GREATEST(p_user_1_id, p_user_2_id);
+
+    
+
+    -- Try to find existing room between these two users
+
+    -- Note: This logic finds the room regardless of the skill context. 
+
+    -- If you want different rooms for different skill pairs, you'd need to add skill filters here.
+
+    SELECT id INTO v_room_id
+
+    FROM public.chat_rooms
+
+    WHERE (user_1_id = v_min_user AND user_2_id = v_max_user);
+
+
+
+    -- If not found, create a new room
+
+    IF v_room_id IS NULL THEN
+
+        INSERT INTO public.chat_rooms (
+
+            user_1_id,
+
+            user_2_id,
+
+            creator_id,
+
+            skill_1_id,
+
+            skill_2_id
+
+        ) VALUES (
+
+            v_min_user,
+
+            v_max_user,
+
+            auth.uid(),
+
+            p_skill_1_id,
+
+            p_skill_2_id
+
+        )
+
+        RETURNING id INTO v_room_id;
+
+    END IF;
+
+    
+
+    RETURN v_room_id;
+
+END;
+
+$$ LANGUAGE plpgsql SECURITY DEFINER;
