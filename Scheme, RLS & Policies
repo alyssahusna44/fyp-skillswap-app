@@ -1936,3 +1936,82 @@ WHERE schemaname = 'public'
 
 -- To remove helper function:
 -- DROP FUNCTION IF EXISTS get_latest_message(BIGINT);
+
+
+-- =============================================
+-- DROP EXISTING FUNCTIONS FIRST
+-- =============================================
+DROP FUNCTION IF EXISTS get_user_reviews(UUID);
+DROP FUNCTION IF EXISTS get_review_stats(UUID);
+
+-- =============================================
+-- FIXED: Get user reviews with reviewer details
+-- =============================================
+CREATE OR REPLACE FUNCTION get_user_reviews(p_user_id UUID)
+RETURNS TABLE(
+    review_id BIGINT,
+    reviewer_id UUID,
+    reviewer_name TEXT,
+    reviewer_profile_pic TEXT,
+    rating INTEGER,
+    comment TEXT,
+    created_at TEXT  -- Changed to TEXT to avoid timestamp formatting issues
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        r.id as review_id,
+        r.reviewer_id,
+        u.name as reviewer_name,
+        p.profile_picture_url as reviewer_profile_pic,
+        r.rating,
+        r.comment,
+        r.created_at::TEXT as created_at  -- Cast to TEXT
+    FROM public.reviews r
+    INNER JOIN public.users u ON u.id = r.reviewer_id
+    LEFT JOIN public.profiles p ON p.id = r.reviewer_id
+    WHERE r.reviewed_user_id = p_user_id
+    ORDER BY r.created_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- =============================================
+-- FIXED: Get review statistics
+-- =============================================
+CREATE OR REPLACE FUNCTION get_review_stats(p_user_id UUID)
+RETURNS TABLE(
+    total_reviews BIGINT,
+    average_rating NUMERIC,
+    five_star BIGINT,
+    four_star BIGINT,
+    three_star BIGINT,
+    two_star BIGINT,
+    one_star BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        COUNT(*)::BIGINT as total_reviews,
+        COALESCE(ROUND(AVG(rating)::NUMERIC, 2), 0.00)::NUMERIC as average_rating,
+        COUNT(CASE WHEN rating = 5 THEN 1 END)::BIGINT as five_star,
+        COUNT(CASE WHEN rating = 4 THEN 1 END)::BIGINT as four_star,
+        COUNT(CASE WHEN rating = 3 THEN 1 END)::BIGINT as three_star,
+        COUNT(CASE WHEN rating = 2 THEN 1 END)::BIGINT as two_star,
+        COUNT(CASE WHEN rating = 1 THEN 1 END)::BIGINT as one_star
+    FROM public.reviews
+    WHERE reviewed_user_id = p_user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- =============================================
+-- Grant permissions
+-- =============================================
+GRANT EXECUTE ON FUNCTION get_user_reviews TO authenticated;
+GRANT EXECUTE ON FUNCTION get_review_stats TO authenticated;
+
+-- =============================================
+-- VERIFICATION QUERY
+-- Test with an actual user ID from your database
+-- =============================================
+-- SELECT * FROM get_review_stats('your-user-id-here');
+-- SELECT * FROM get_user_reviews('your-user-id-here');
