@@ -71,15 +71,17 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadProfile() async {
+    setState(() => _isLoading = true);
+
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
-        setState(() => _isLoading = false);
         _showError('User not authenticated');
+        setState(() => _isLoading = false);
         return;
       }
 
-      // Load profile and user data
+      // Load profile data
       final profileResponse = await _supabase
           .from('profiles')
           .select(
@@ -88,13 +90,14 @@ class _ProfilePageState extends State<ProfilePage> {
           .eq('id', userId)
           .maybeSingle();
 
+      // Load user data
       final userResponse = await _supabase
           .from('users')
           .select('name')
           .eq('id', userId)
           .maybeSingle();
 
-      // Load user skills with proper join syntax
+      // Load user skills with proper join
       final skillsData = await _supabase
           .from('user_skills')
           .select('''
@@ -112,12 +115,15 @@ class _ProfilePageState extends State<ProfilePage> {
           )
           .eq('user_id', userId);
 
+      if (!mounted) return;
+
       setState(() {
-        // Handle potentially null profile data
+        // Set user data
         if (userResponse != null) {
           _nameController.text = userResponse['name'] ?? '';
         }
 
+        // Set profile data
         if (profileResponse != null) {
           _bioController.text = profileResponse['bio'] ?? '';
           _locationController.text = profileResponse['location'] ?? '';
@@ -138,6 +144,7 @@ class _ProfilePageState extends State<ProfilePage> {
             .map((s) => s['skills']['name'] as String)
             .toList();
 
+        // Set availability
         _availability = (availabilityData as List)
             .map(
               (a) => {
@@ -152,10 +159,16 @@ class _ProfilePageState extends State<ProfilePage> {
 
         _isLoading = false;
       });
-    } catch (e) {
+
+      debugPrint('✅ Profile loaded successfully');
+      debugPrint('Skills to teach: $_skillsToTeach');
+      debugPrint('Skills to learn: $_skillsToLearn');
+      debugPrint('Availability slots: ${_availability.length}');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error loading profile: $e');
+      debugPrint('Stack trace: $stackTrace');
       setState(() => _isLoading = false);
       _showError('Error loading profile: $e');
-      debugPrint('Profile load error: $e');
     }
   }
 
@@ -184,10 +197,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
       final fileExt = _selectedImage!.name.split('.').last;
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExt';
-      // Organize by user ID folder for better security
       final filePath = '$userId/$fileName';
 
-      // Read file as bytes for cross-platform compatibility
       final bytes = await _selectedImage!.readAsBytes();
 
       await _supabase.storage
@@ -204,16 +215,21 @@ class _ProfilePageState extends State<ProfilePage> {
       final publicUrl = _supabase.storage
           .from('avatars')
           .getPublicUrl(filePath);
+
+      debugPrint('✅ Image uploaded: $publicUrl');
       return publicUrl;
     } catch (e) {
+      debugPrint('❌ Upload error: $e');
       _showError('Error uploading image: $e');
-      debugPrint('Upload error: $e');
       return null;
     }
   }
 
   Future<void> _saveProfile() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      _showError('Please fix the errors in the form');
+      return;
+    }
 
     setState(() => _isSaving = true);
 
@@ -225,6 +241,10 @@ class _ProfilePageState extends State<ProfilePage> {
       String? newProfilePictureUrl;
       if (_selectedImage != null) {
         newProfilePictureUrl = await _uploadProfilePicture();
+        if (newProfilePictureUrl == null) {
+          setState(() => _isSaving = false);
+          return;
+        }
       }
 
       // Prepare availability data
@@ -239,6 +259,12 @@ class _ProfilePageState extends State<ProfilePage> {
             },
           )
           .toList();
+
+      debugPrint('📤 Saving profile...');
+      debugPrint('Name: ${_nameController.text.trim()}');
+      debugPrint('Skills to teach: $_skillsToTeach');
+      debugPrint('Skills to learn: $_skillsToLearn');
+      debugPrint('Availability: ${availabilityJson.length} slots');
 
       // Call the upsert function
       await _supabase.rpc(
@@ -262,6 +288,11 @@ class _ProfilePageState extends State<ProfilePage> {
         },
       );
 
+      debugPrint('✅ Profile saved successfully');
+
+      // Reload profile to verify data was saved
+      await _loadProfile();
+
       setState(() {
         _isSaving = false;
         _selectedImage = null;
@@ -272,10 +303,15 @@ class _ProfilePageState extends State<ProfilePage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile updated successfully!')),
+          const SnackBar(
+            content: Text('✅ Profile updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error saving profile: $e');
+      debugPrint('Stack trace: $stackTrace');
       setState(() => _isSaving = false);
       _showError('Error saving profile: $e');
     }
@@ -284,7 +320,11 @@ class _ProfilePageState extends State<ProfilePage> {
   void _showError(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
       );
     }
   }
@@ -298,12 +338,16 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
 
-    if (result != null) {
+    if (result != null && result.isNotEmpty) {
       setState(() {
         if (isTeach) {
-          _skillsToTeach.add(result);
+          if (!_skillsToTeach.contains(result)) {
+            _skillsToTeach.add(result);
+          }
         } else {
-          _skillsToLearn.add(result);
+          if (!_skillsToLearn.contains(result)) {
+            _skillsToLearn.add(result);
+          }
         }
       });
     }
@@ -323,7 +367,6 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _showProfilePreview() async {
-    // Get the current image for preview
     Uint8List? imageBytes;
     if (_selectedImage != null) {
       imageBytes = await _selectedImage!.readAsBytes();
@@ -353,7 +396,18 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Loading profile...'),
+            ],
+          ),
+        ),
+      );
     }
 
     return Scaffold(
@@ -424,16 +478,24 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             const SizedBox(height: 24),
 
-            // Name
+            // Name - REQUIRED per SRS
             TextFormField(
               controller: _nameController,
               decoration: const InputDecoration(
-                labelText: 'Name',
+                labelText: 'Name *',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.person),
+                helperText: 'Required - Your full name',
               ),
-              validator: (value) =>
-                  value?.isEmpty ?? true ? 'Name is required' : null,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Name is required';
+                }
+                if (value.trim().length < 2) {
+                  return 'Name must be at least 2 characters';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16),
 
@@ -444,6 +506,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 labelText: 'Bio',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.info),
+                helperText: 'Tell others about yourself',
               ),
               maxLines: 3,
             ),
@@ -456,6 +519,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 labelText: 'Location',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.location_on),
+                helperText: 'Your city or campus location',
               ),
             ),
             const SizedBox(height: 16),
@@ -467,11 +531,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 labelText: 'Phone Number',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.phone),
+                helperText: 'Optional - For easy contact',
               ),
               keyboardType: TextInputType.phone,
               validator: (value) {
                 if (value != null && value.isNotEmpty) {
-                  // Optional: Add phone validation
                   if (!RegExp(r'^\+?[0-9\s\-\(\)]+$').hasMatch(value)) {
                     return 'Invalid phone number format';
                   }
@@ -481,15 +545,15 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             const SizedBox(height: 24),
 
-            // Skills to Teach
-            _buildSkillSection('Skills to Teach', _skillsToTeach, true),
+            // Skills to Teach - REQUIRED per SRS
+            _buildSkillSection('Skills to Teach *', _skillsToTeach, true),
             const SizedBox(height: 24),
 
-            // Skills to Learn
-            _buildSkillSection('Skills to Learn', _skillsToLearn, false),
+            // Skills to Learn - REQUIRED per SRS
+            _buildSkillSection('Skills to Learn *', _skillsToLearn, false),
             const SizedBox(height: 24),
 
-            // Availability
+            // Availability - REQUIRED per SRS
             _buildAvailabilitySection(),
             const SizedBox(height: 80), // Extra space for FAB
           ],
@@ -505,27 +569,62 @@ class _ProfilePageState extends State<ProfilePage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              title,
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
             IconButton(
               icon: const Icon(Icons.add_circle),
               onPressed: () => _addSkill(isTeach),
+              color: Theme.of(context).primaryColor,
             ),
           ],
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: skills
-              .map(
-                (skill) => Chip(
-                  label: Text(skill),
-                  onDeleted: () {
-                    setState(() => skills.remove(skill));
-                  },
+        if (skills.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.orange[50],
+              border: Border.all(color: Colors.orange[200]!),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber, color: Colors.orange[700]),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Please add at least one skill',
+                    style: TextStyle(color: Colors.orange[700]),
+                  ),
                 ),
-              )
-              .toList(),
-        ),
+              ],
+            ),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: skills
+                .map(
+                  (skill) => Chip(
+                    label: Text(skill),
+                    backgroundColor: isTeach
+                        ? Colors.green[50]
+                        : Colors.blue[50],
+                    deleteIconColor: isTeach
+                        ? Colors.green[700]
+                        : Colors.blue[700],
+                    onDeleted: () {
+                      setState(() => skills.remove(skill));
+                    },
+                  ),
+                )
+                .toList(),
+          ),
       ],
     );
   }
@@ -537,20 +636,39 @@ class _ProfilePageState extends State<ProfilePage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Availability', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Availability *',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
             IconButton(
               icon: const Icon(Icons.add_circle),
               onPressed: _addAvailability,
+              color: Theme.of(context).primaryColor,
             ),
           ],
         ),
         const SizedBox(height: 8),
         if (_availability.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              'No availability set. Add your available times.',
-              style: TextStyle(color: Colors.grey),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.orange[50],
+              border: Border.all(color: Colors.orange[200]!),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber, color: Colors.orange[700]),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Please add your availability',
+                    style: TextStyle(color: Colors.orange[700]),
+                  ),
+                ),
+              ],
             ),
           )
         else
@@ -562,7 +680,6 @@ class _ProfilePageState extends State<ProfilePage> {
             String title = avail['day_of_week'];
 
             if (!isRecurring && dateSpecific != null) {
-              // Parse and format the specific date
               final date = DateTime.parse(dateSpecific);
               title =
                   '${date.day}/${date.month}/${date.year} (${avail['day_of_week']})';
@@ -578,7 +695,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 title: Text(title),
                 subtitle: Text(subtitle),
                 trailing: IconButton(
-                  icon: const Icon(Icons.delete),
+                  icon: const Icon(Icons.delete, color: Colors.red),
                   onPressed: () {
                     setState(() => _availability.remove(avail));
                   },
