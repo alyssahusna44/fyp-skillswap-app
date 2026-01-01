@@ -383,7 +383,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black,
                         blurRadius: 10,
                         offset: const Offset(0, -2),
                       ),
