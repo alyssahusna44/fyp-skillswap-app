@@ -84,6 +84,7 @@ class AuthStateWrapper extends StatelessWidget {
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
   if (data.event == AuthChangeEvent.passwordRecovery) {
     Navigator.push(
+      // ignore: use_build_context_synchronously
       context,
       MaterialPageRoute(builder: (context) => const UpdatePasswordScreen()),
     );

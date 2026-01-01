@@ -121,7 +121,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   void _handleMessageUpdate(Map<String, dynamic> updatedMessage) {
     if (!mounted) return;
     
-    final chatRoomId = updatedMessage['chat_room_id'] as int;
+    //final chatRoomId = updatedMessage['chat_room_id'] as int;
     
     // If message was marked as read, update unread count
     if (updatedMessage['is_read'] == true) {
