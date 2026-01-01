@@ -82,15 +82,10 @@ class _AuthWrapperScreenState extends State<AuthWrapperScreen>
               padding: const EdgeInsets.all(24.0),
               child: Column(
                 children: [
-                  // App Logo (you can replace with your app logo)
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Icon(Icons.school, size: 50, color: Colors.white),
+                  Image.asset(
+                    'lib/assets/SkillSwap_Logo.png',
+                    height: 120, // Adjusted size
+                    fit: BoxFit.contain,
                   ),
                   const SizedBox(height: 16),
 

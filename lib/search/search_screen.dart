@@ -295,44 +295,56 @@ class _SearchScreenState extends State<SearchScreen> {
                     children: [
                       // Filter button
                       ActionChip(
-                        avatar: const Icon(
+                        avatar: Icon(
                           Icons.filter_list,
                           size: 18,
-                          color: Colors.white,
+                          color: Theme.of(
+                            context,
+                          ).primaryColor, // Uses the dark blue (#114A99)
                         ),
-                        label: const Text(
+                        label: Text(
                           'Filters',
-                          style: TextStyle(color: Colors.white),
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).primaryColor, // Uses the dark blue (#114A99)
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        backgroundColor: Colors.white.withOpacity(0.2),
+                        // backgroundColor uses the accent color (#FEBD59) defined in main.dart
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.secondary,
                         onPressed: _showFilterDialog,
+                        side: BorderSide
+                            .none, // Removes the border for a cleaner look
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                       ),
                       const SizedBox(width: 8),
 
-                      // Active filters
+                      // Active filter chips (Updated for better readability)
                       if (_selectedSkillFilter != null) ...[
                         Chip(
-                          label: Text(_selectedSkillFilter!),
-                          deleteIcon: const Icon(Icons.close, size: 18),
+                          label: Text(
+                            _selectedSkillFilter!,
+                            style: TextStyle(
+                              color: Theme.of(context).primaryColor,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          deleteIcon: Icon(
+                            Icons.close,
+                            size: 18,
+                            color: Theme.of(context).primaryColor,
+                          ),
                           onDeleted: () {
                             setState(() => _selectedSkillFilter = null);
                             _performSearch();
                           },
                           backgroundColor: Colors.white,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-
-                      if (_selectedLocationFilter != null &&
-                          _selectedLocationFilter!.isNotEmpty) ...[
-                        Chip(
-                          label: Text(_selectedLocationFilter!),
-                          deleteIcon: const Icon(Icons.close, size: 18),
-                          onDeleted: () {
-                            setState(() => _selectedLocationFilter = null);
-                            _performSearch();
-                          },
-                          backgroundColor: Colors.white,
+                          side: BorderSide.none,
                         ),
                         const SizedBox(width: 8),
                       ],

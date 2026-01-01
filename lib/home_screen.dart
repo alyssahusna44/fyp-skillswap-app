@@ -174,9 +174,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
-        title: const Text(
-          'SkillSwap',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Image.asset(
+          'lib/assets/SkillSwap_Logo.png',
+          height: 35,
+          color: Colors.white, 
+          colorBlendMode: BlendMode.srcIn,
         ),
         elevation: 0,
         backgroundColor: Theme.of(context).primaryColor,
