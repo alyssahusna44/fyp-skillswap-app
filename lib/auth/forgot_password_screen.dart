@@ -45,7 +45,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       // Note: redirectTo should be your web URL for deployment
       await Supabase.instance.client.auth.resetPasswordForEmail(
         _emailController.text.trim(),
-        redirectTo: 'https://your-app-url.com/reset-password', 
+        redirectTo: 'https://unikl-skillswap-app.netlify.app/update-password', 
       );
 
       if (!mounted) return;

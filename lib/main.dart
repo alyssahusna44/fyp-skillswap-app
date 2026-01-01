@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'auth/auth_wrapper.dart';
 import 'home_screen.dart';
 import 'widgets/splash_screen.dart';
+import 'auth/update_password_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -79,6 +80,15 @@ class AuthStateWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+  if (data.event == AuthChangeEvent.passwordRecovery) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const UpdatePasswordScreen()),
+    );
+  }
+});
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {

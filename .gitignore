@@ -72,7 +72,6 @@ app.*.map.json
 **/ios/Runner/GeneratedPluginRegistrant.*
 
 # Web related
-lib/generated_plugin_registrant.dart
 
 # Environment variables - IMPORTANT FOR SUPABASE!
 .env
