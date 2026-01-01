@@ -1725,3 +1725,214 @@ FROM pg_policies
 WHERE schemaname = 'public' 
   AND tablename = 'chat_rooms';
 
+-- =============================================
+-- CHAT REALTIME OPTIMIZATIONS
+-- Run these queries to ensure optimal realtime performance
+-- =============================================
+
+-- 1. Enable Realtime for chat tables
+ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_rooms;
+
+-- 2. Add indexes for faster queries on chat messages
+CREATE INDEX IF NOT EXISTS idx_chat_messages_room_sent 
+    ON public.chat_messages(chat_room_id, sent_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_unread 
+    ON public.chat_messages(chat_room_id, is_read) 
+    WHERE is_read = false;
+
+-- 3. Add index for chat rooms ordering
+CREATE INDEX IF NOT EXISTS idx_chat_rooms_updated_desc 
+    ON public.chat_rooms(updated_at DESC);
+
+-- 4. Optimize the get_unread_count function with better performance
+CREATE OR REPLACE FUNCTION get_unread_count(p_user_id UUID)
+RETURNS TABLE(chat_room_id BIGINT, unread_count BIGINT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        cm.chat_room_id,
+        COUNT(*)::BIGINT as unread_count
+    FROM public.chat_messages cm
+    INNER JOIN public.chat_rooms cr ON cr.id = cm.chat_room_id
+    WHERE (cr.user_1_id = p_user_id OR cr.user_2_id = p_user_id)
+      AND cm.sender_id != p_user_id
+      AND cm.is_read = false
+    GROUP BY cm.chat_room_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- 5. Drop and recreate mark_messages_as_read function
+-- (Needed because we're changing the return type)
+DROP FUNCTION IF EXISTS mark_messages_as_read(BIGINT, UUID);
+
+-- Create improved version with better tracking
+CREATE OR REPLACE FUNCTION mark_messages_as_read(
+    p_chat_room_id BIGINT,
+    p_user_id UUID
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Update messages to mark as read
+    UPDATE public.chat_messages
+    SET is_read = TRUE
+    WHERE chat_room_id = p_chat_room_id
+      AND sender_id != p_user_id
+      AND is_read = FALSE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant permissions
+GRANT EXECUTE ON FUNCTION get_unread_count TO authenticated;
+GRANT EXECUTE ON FUNCTION mark_messages_as_read TO authenticated;
+
+-- 6. Add trigger to automatically update chat_room updated_at
+-- (This ensures chat rooms stay sorted correctly)
+CREATE OR REPLACE FUNCTION update_chat_room_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE public.chat_rooms 
+    SET updated_at = timezone('utc'::text, now())
+    WHERE id = NEW.chat_room_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS update_chat_room_on_message ON public.chat_messages;
+
+-- Create new trigger
+CREATE TRIGGER update_chat_room_on_message
+    AFTER INSERT ON public.chat_messages
+    FOR EACH ROW 
+    EXECUTE FUNCTION update_chat_room_timestamp();
+
+-- 7. Add helper function to get latest message for a room (useful for chat list)
+CREATE OR REPLACE FUNCTION get_latest_message(p_room_id BIGINT)
+RETURNS TABLE(
+    message_text TEXT,
+    sent_at TIMESTAMPTZ,
+    sender_id UUID
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        cm.message_text,
+        cm.sent_at,
+        cm.sender_id
+    FROM public.chat_messages cm
+    WHERE cm.chat_room_id = p_room_id
+    ORDER BY cm.sent_at DESC
+    LIMIT 1;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+GRANT EXECUTE ON FUNCTION get_latest_message TO authenticated;
+
+-- 8. Create a view for efficient chat list queries
+CREATE OR REPLACE VIEW chat_list_view AS
+SELECT 
+    cr.id as room_id,
+    cr.user_1_id,
+    cr.user_2_id,
+    cr.updated_at,
+    cr.skill_1_id,
+    cr.skill_2_id,
+    (
+        SELECT message_text 
+        FROM public.chat_messages 
+        WHERE chat_room_id = cr.id 
+        ORDER BY sent_at DESC 
+        LIMIT 1
+    ) as last_message,
+    (
+        SELECT sent_at 
+        FROM public.chat_messages 
+        WHERE chat_room_id = cr.id 
+        ORDER BY sent_at DESC 
+        LIMIT 1
+    ) as last_message_time,
+    (
+        SELECT sender_id 
+        FROM public.chat_messages 
+        WHERE chat_room_id = cr.id 
+        ORDER BY sent_at DESC 
+        LIMIT 1
+    ) as last_sender_id
+FROM public.chat_rooms cr
+ORDER BY cr.updated_at DESC;
+
+-- Grant access to the view
+GRANT SELECT ON chat_list_view TO authenticated;
+
+-- 9. Add RLS policy for the view
+ALTER VIEW chat_list_view SET (security_invoker = true);
+
+-- 10. Verify realtime is enabled
+SELECT 
+    schemaname,
+    tablename,
+    rowsecurity
+FROM pg_tables
+WHERE schemaname = 'public' 
+  AND tablename IN ('chat_messages', 'chat_rooms');
+
+-- 11. Check indexes are created
+SELECT 
+    indexname,
+    tablename,
+    indexdef
+FROM pg_indexes
+WHERE schemaname = 'public' 
+  AND tablename IN ('chat_messages', 'chat_rooms')
+ORDER BY tablename, indexname;
+
+-- =============================================
+-- PERFORMANCE MONITORING QUERIES
+-- Use these to check performance
+-- =============================================
+
+-- Check unread messages count for a specific user
+-- SELECT * FROM get_unread_count('your-user-uuid');
+
+-- Check latest message for a room
+-- SELECT * FROM get_latest_message(1);
+
+-- View all active chat rooms with details
+-- SELECT * FROM chat_list_view LIMIT 10;
+
+-- Check message count per room
+-- SELECT 
+--     chat_room_id,
+--     COUNT(*) as message_count,
+--     MAX(sent_at) as latest_message
+-- FROM public.chat_messages
+-- GROUP BY chat_room_id
+-- ORDER BY latest_message DESC;
+
+-- =============================================
+-- TROUBLESHOOTING
+-- =============================================
+
+-- If realtime updates aren't working, check:
+-- 1. Verify Supabase Realtime is enabled in project settings
+-- 2. Check if tables are added to realtime publication:
+SELECT * FROM pg_publication_tables WHERE pubname = 'supabase_realtime';
+
+-- 3. Verify RLS policies allow SELECT on chat tables:
+SELECT schemaname, tablename, policyname, permissive, roles, cmd
+FROM pg_policies
+WHERE schemaname = 'public' 
+  AND tablename IN ('chat_messages', 'chat_rooms')
+  AND cmd = 'SELECT';
+
+-- =============================================
+-- CLEANUP (if needed)
+-- =============================================
+
+-- To remove the view:
+-- DROP VIEW IF EXISTS chat_list_view;
+
+-- To remove helper function:
+-- DROP FUNCTION IF EXISTS get_latest_message(BIGINT);
