@@ -23,6 +23,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
 
   // Profile data
   String? _name;
+  String? _email;
   String? _bio;
   String? _location;
   String? _profilePictureUrl;
@@ -52,10 +53,10 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
           .eq('id', widget.userId)
           .maybeSingle();
 
-      // Load user data (name)
+      // Load user data (name and email)
       final userData = await _supabase
           .from('users')
-          .select('name')
+          .select('name, email')
           .eq('id', widget.userId)
           .maybeSingle();
 
@@ -78,6 +79,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
 
       setState(() {
         _name = userData?['name'];
+        _email = userData?['email'];
         _bio = profileData?['bio'];
         _location = profileData?['location'];
         _profilePictureUrl = profileData?['profile_picture_url'];
@@ -182,78 +184,131 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
     }
   }
 
+  void _showSuccess(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.green),
+      );
+    }
+  }
+
   Future<void> _sendEmail() async {
     try {
-      final userData = await _supabase
-          .from('users')
-          .select('email')
-          .eq('id', widget.userId)
-          .maybeSingle();
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
 
-      final email = userData?['email'];
-      if (email == null) {
-        _showError('No email available');
+      String? email = _email;
+
+      // If email not loaded from profile, fetch it using the RPC function
+      if (email == null || email.isEmpty) {
+        final result = await _supabase.rpc(
+          'get_user_email',
+          params: {'p_user_id': widget.userId},
+        );
+        email = result as String?;
+      }
+
+      // Close loading dialog
+      if (mounted) Navigator.of(context).pop();
+
+      if (email == null || email.isEmpty) {
+        _showError('No email available for this user');
         return;
       }
 
       final Uri emailUri = Uri(
         scheme: 'mailto',
         path: email,
-        query: 'subject=Skill Exchange Inquiry',
+        query: 'subject=SkillSwap Connection Request',
       );
 
       if (await canLaunchUrl(emailUri)) {
         await launchUrl(emailUri);
+        _showSuccess('Opening email client...');
       } else {
-        _showError('Cannot send email');
+        _showError('Cannot open email client. Email: $email');
       }
     } catch (e) {
-      _showError('Failed to get email');
+      // Close loading dialog if still open
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      debugPrint('Error sending email: $e');
+      _showError('Failed to open email: $e');
     }
   }
 
   Future<void> _startChat() async {
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
-
-      // Get a skill from each user for the chat room
-      final mySkills = await _supabase
-          .from('user_skills')
-          .select('skill_id')
-          .eq('user_id', currentUserId)
-          .eq('skill_level', 'TEACH')
-          .limit(1)
-          .maybeSingle();
-
-      final theirSkills = await _supabase
-          .from('user_skills')
-          .select('skill_id')
-          .eq('user_id', widget.userId)
-          .eq('skill_level', 'LEARN')
-          .limit(1)
-          .maybeSingle();
-
-      if (mySkills == null || theirSkills == null) {
-        _showError('Cannot start chat: skill information missing');
+      if (currentUserId == null) {
+        _showError('You must be logged in to start a chat');
         return;
       }
 
-      // Get or create chat room
+      // Prevent chatting with yourself
+      if (currentUserId == widget.userId) {
+        _showError('You cannot chat with yourself');
+        return;
+      }
+
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // Try to get skills for context (optional)
+      int? mySkillId;
+      int? theirSkillId;
+
+      try {
+        final mySkills = await _supabase
+            .from('user_skills')
+            .select('skill_id')
+            .eq('user_id', currentUserId)
+            .eq('skill_level', 'TEACH')
+            .limit(1)
+            .maybeSingle();
+
+        final theirSkills = await _supabase
+            .from('user_skills')
+            .select('skill_id')
+            .eq('user_id', widget.userId)
+            .eq('skill_level', 'LEARN')
+            .limit(1)
+            .maybeSingle();
+
+        mySkillId = mySkills?['skill_id'] as int?;
+        theirSkillId = theirSkills?['skill_id'] as int?;
+      } catch (e) {
+        debugPrint('Could not fetch skills, proceeding without them: $e');
+      }
+
+      // Get or create chat room (skills are now optional)
       final roomId =
           await _supabase.rpc(
                 'get_or_create_chat_room',
                 params: {
                   'p_user_1_id': currentUserId,
                   'p_user_2_id': widget.userId,
-                  'p_skill_1_id': mySkills['skill_id'],
-                  'p_skill_2_id': theirSkills['skill_id'],
+                  'p_skill_1_id': mySkillId,
+                  'p_skill_2_id': theirSkillId,
                 },
               )
               as int;
 
+      // Close loading dialog
+      if (mounted) Navigator.of(context).pop();
+
       if (!mounted) return;
 
+      // Navigate to chat room
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -266,6 +321,11 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
         ),
       );
     } catch (e) {
+      // Close loading dialog if still open
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      debugPrint('Error starting chat: $e');
       _showError('Failed to start chat: $e');
     }
   }
@@ -392,7 +452,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
@@ -652,7 +712,7 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                   eventLoader: _getAvailabilityForDay,
                   calendarStyle: CalendarStyle(
                     todayDecoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor,
+                      color: Theme.of(context).primaryColor.withOpacity(0.5),
                       shape: BoxShape.circle,
                     ),
                     selectedDecoration: BoxDecoration(
@@ -753,8 +813,8 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                       ),
                       decoration: BoxDecoration(
                         color: slot['is_recurring']
-                            ? Colors.blue
-                            : Colors.green,
+                            ? Colors.blue.withOpacity(0.1)
+                            : Colors.green.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(

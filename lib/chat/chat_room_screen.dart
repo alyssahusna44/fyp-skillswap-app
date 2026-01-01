@@ -24,10 +24,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final _supabase = Supabase.instance.client;
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
-
+  
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
+  
+  // Realtime subscription
+  RealtimeChannel? _messageSubscription;
 
   @override
   void initState() {
@@ -41,13 +44,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
-    _supabase.channel('chat_room_${widget.chatRoomId}').unsubscribe();
+    // Properly remove the subscription
+    _messageSubscription?.unsubscribe();
     super.dispose();
   }
 
   void _setupRealtimeSubscription() {
-    _supabase
-        .channel('chat_room_${widget.chatRoomId}')
+    // Create a unique channel name for this chat room
+    final channelName = 'chat_room_${widget.chatRoomId}';
+    
+    // Remove any existing subscription first
+    _messageSubscription?.unsubscribe();
+    
+    // Subscribe to realtime changes
+    _messageSubscription = _supabase
+        .channel(channelName)
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -58,11 +69,76 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             value: widget.chatRoomId,
           ),
           callback: (payload) {
-            _loadMessages();
-            _markMessagesAsRead();
+            debugPrint('New message received: ${payload.newRecord}');
+            _handleNewMessage(payload.newRecord);
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'chat_messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'chat_room_id',
+            value: widget.chatRoomId,
+          ),
+          callback: (payload) {
+            debugPrint('Message updated: ${payload.newRecord}');
+            _handleMessageUpdate(payload.newRecord);
           },
         )
         .subscribe();
+  }
+
+  void _handleNewMessage(Map<String, dynamic> newRecord) {
+    if (!mounted) return;
+    
+    final newMessage = {
+      'id': newRecord['id'],
+      'sender_id': newRecord['sender_id'],
+      'message_text': newRecord['message_text'],
+      'sent_at': newRecord['sent_at'],
+      'is_read': newRecord['is_read'],
+      'is_mine': newRecord['sender_id'] == _supabase.auth.currentUser?.id,
+    };
+
+    setState(() {
+      // Check if message already exists (to avoid duplicates)
+      final exists = _messages.any((msg) => msg['id'] == newMessage['id']);
+      if (!exists) {
+        _messages.add(newMessage);
+        // Sort messages by sent_at
+        _messages.sort((a, b) => 
+          DateTime.parse(a['sent_at']).compareTo(DateTime.parse(b['sent_at']))
+        );
+      }
+    });
+
+    // Mark as read if it's not from current user
+    if (!newMessage['is_mine']) {
+      _markMessagesAsRead();
+    }
+
+    // Scroll to bottom
+    _scrollToBottom();
+  }
+
+  void _handleMessageUpdate(Map<String, dynamic> updatedRecord) {
+    if (!mounted) return;
+    
+    setState(() {
+      final index = _messages.indexWhere((msg) => msg['id'] == updatedRecord['id']);
+      if (index != -1) {
+        _messages[index] = {
+          'id': updatedRecord['id'],
+          'sender_id': updatedRecord['sender_id'],
+          'message_text': updatedRecord['message_text'],
+          'sent_at': updatedRecord['sent_at'],
+          'is_read': updatedRecord['is_read'],
+          'is_mine': updatedRecord['sender_id'] == _supabase.auth.currentUser?.id,
+        };
+      }
+    });
   }
 
   Future<void> _loadMessages() async {
@@ -72,6 +148,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           .select('id, sender_id, message_text, sent_at, is_read')
           .eq('chat_room_id', widget.chatRoomId)
           .order('sent_at', ascending: true);
+
+      if (!mounted) return;
 
       setState(() {
         _messages = (messagesData as List).map((msg) {
@@ -87,8 +165,20 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _isLoading = false;
       });
 
-      // Scroll to bottom
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Scroll to bottom after loading
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    } catch (e) {
+      debugPrint('Error loading messages: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showError('Failed to load messages: $e');
+      }
+    }
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      Future.delayed(const Duration(milliseconds: 100), () {
         if (_scrollController.hasClients) {
           _scrollController.animateTo(
             _scrollController.position.maxScrollExtent,
@@ -97,21 +187,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           );
         }
       });
-    } catch (e) {
-      debugPrint('Error loading messages: $e');
-      setState(() => _isLoading = false);
     }
   }
 
   Future<void> _markMessagesAsRead() async {
     try {
-      await _supabase.rpc(
-        'mark_messages_as_read',
-        params: {
-          'p_chat_room_id': widget.chatRoomId,
-          'p_user_id': _supabase.auth.currentUser?.id,
-        },
-      );
+      await _supabase.rpc('mark_messages_as_read', params: {
+        'p_chat_room_id': widget.chatRoomId,
+        'p_user_id': _supabase.auth.currentUser?.id,
+      });
     } catch (e) {
       debugPrint('Error marking messages as read: $e');
     }
@@ -124,24 +208,39 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     setState(() => _isSending = true);
 
     try {
+      // Clear the input field immediately for better UX
+      _messageController.clear();
+
       await _supabase.from('chat_messages').insert({
         'chat_room_id': widget.chatRoomId,
         'sender_id': _supabase.auth.currentUser?.id,
         'message_text': messageText,
       });
 
-      _messageController.clear();
+      // Note: The realtime subscription will handle adding the message to the UI
+      
     } catch (e) {
+      debugPrint('Error sending message: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to send message: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showError('Failed to send message: $e');
+        // Restore the message text if sending failed
+        _messageController.text = messageText;
       }
     } finally {
-      setState(() => _isSending = false);
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -196,13 +295,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () {
-              // TODO: Show chat info/options
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Chat info coming soon!')),
-              );
-            },
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadMessages,
+            tooltip: 'Refresh messages',
           ),
         ],
       ),
@@ -244,8 +339,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           itemCount: _messages.length,
                           itemBuilder: (context, index) {
                             final message = _messages[index];
-                            final showDate =
-                                index == 0 ||
+                            final showDate = index == 0 ||
                                 _formatDate(_messages[index - 1]['sent_at']) !=
                                     _formatDate(message['sent_at']);
 
@@ -289,7 +383,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black,
+                        color: Colors.black.withOpacity(0.05),
                         blurRadius: 10,
                         offset: const Offset(0, -2),
                       ),
@@ -316,12 +410,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             maxLines: null,
                             textCapitalization: TextCapitalization.sentences,
                             onSubmitted: (_) => _sendMessage(),
+                            enabled: !_isSending,
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       CircleAvatar(
-                        backgroundColor: Theme.of(context).primaryColor,
+                        backgroundColor: _isSending 
+                            ? Colors.grey 
+                            : Theme.of(context).primaryColor,
                         child: IconButton(
                           icon: _isSending
                               ? const SizedBox(
@@ -377,12 +474,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              _formatTime(message['sent_at']),
-              style: TextStyle(
-                color: isMine ? Colors.white70 : Colors.grey[600],
-                fontSize: 11,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _formatTime(message['sent_at']),
+                  style: TextStyle(
+                    color: isMine ? Colors.white70 : Colors.grey[600],
+                    fontSize: 11,
+                  ),
+                ),
+                if (isMine) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    message['is_read'] ? Icons.done_all : Icons.done,
+                    size: 14,
+                    color: message['is_read'] ? Colors.blue[200] : Colors.white70,
+                  ),
+                ],
+              ],
             ),
           ],
         ),

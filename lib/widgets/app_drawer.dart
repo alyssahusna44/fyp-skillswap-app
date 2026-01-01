@@ -1,5 +1,4 @@
-// Replace lib/widgets/app_drawer.dart content with this updated version:
-
+// lib/widgets/app_drawer.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/auth_wrapper.dart';
@@ -21,6 +20,9 @@ class _AppDrawerState extends State<AppDrawer> {
   String? _userName;
   bool _isLoadingProfile = true;
   int _unreadCount = 0;
+  
+  // Realtime subscription
+  RealtimeChannel? _messagesSubscription;
 
   User? get currentUser => Supabase.instance.client.auth.currentUser;
 
@@ -29,6 +31,46 @@ class _AppDrawerState extends State<AppDrawer> {
     super.initState();
     _loadProfile();
     _loadUnreadCount();
+    _setupRealtimeSubscription();
+  }
+
+  @override
+  void dispose() {
+    _messagesSubscription?.unsubscribe();
+    super.dispose();
+  }
+
+  void _setupRealtimeSubscription() {
+    final userId = currentUser?.id;
+    if (userId == null) return;
+
+    // Subscribe to new messages
+    _messagesSubscription = Supabase.instance.client
+        .channel('drawer_messages')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'chat_messages',
+          callback: (payload) {
+            final senderId = payload.newRecord['sender_id'] as String?;
+            // Only update count if message is not from current user
+            if (senderId != userId) {
+              _loadUnreadCount();
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'chat_messages',
+          callback: (payload) {
+            // Reload when messages are marked as read
+            if (payload.newRecord['is_read'] == true) {
+              _loadUnreadCount();
+            }
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _loadProfile() async {
@@ -229,7 +271,7 @@ class _AppDrawerState extends State<AppDrawer> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      _unreadCount.toString(),
+                      _unreadCount > 99 ? '99+' : _unreadCount.toString(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
@@ -238,11 +280,13 @@ class _AppDrawerState extends State<AppDrawer> {
                     ),
                   )
                 : null,
-            onTap: () {
-              Navigator.push(
+            onTap: () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const ChatListScreen()),
-              ).then((_) => _loadUnreadCount());
+              );
+              // Reload count when returning from chat
+              _loadUnreadCount();
             },
           ),
           const Divider(),
