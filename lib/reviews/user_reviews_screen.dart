@@ -32,16 +32,20 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
   Future<void> _loadReviews() async {
     try {
       // Get review statistics
-      final statsData = await _supabase.rpc(
-        'get_review_stats',
-        params: {'p_user_id': widget.userId},
-      ) as List;
+      final statsData =
+          await _supabase.rpc(
+                'get_review_stats',
+                params: {'p_user_id': widget.userId},
+              )
+              as List;
 
       // Get all reviews
-      final reviewsData = await _supabase.rpc(
-        'get_user_reviews',
-        params: {'p_user_id': widget.userId},
-      ) as List;
+      final reviewsData =
+          await _supabase.rpc(
+                'get_user_reviews',
+                params: {'p_user_id': widget.userId},
+              )
+              as List;
 
       setState(() {
         _stats = statsData.isNotEmpty ? statsData[0] : null;
@@ -136,7 +140,7 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Theme.of(context).primaryColor.withOpacity(0.3),
+            color: Theme.of(context).primaryColor,
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -210,10 +214,7 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
         children: [
           Text(
             '$stars',
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-            ),
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
           const SizedBox(width: 4),
           const Icon(Icons.star, color: Colors.amber, size: 14),
@@ -223,7 +224,7 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: percentage,
-                backgroundColor: Colors.white.withOpacity(0.3),
+                backgroundColor: Colors.white,
                 valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
                 minHeight: 6,
               ),
@@ -232,10 +233,7 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
           const SizedBox(width: 8),
           Text(
             count.toString(),
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-            ),
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
       ),
@@ -270,9 +268,7 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -311,10 +307,7 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
                       const SizedBox(height: 4),
                       Text(
                         _formatDate(review['created_at']),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                     ],
                   ),

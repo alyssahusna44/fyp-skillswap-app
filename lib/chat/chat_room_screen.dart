@@ -24,7 +24,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final _supabase = Supabase.instance.client;
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
-  
+
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
@@ -105,10 +105,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _markMessagesAsRead() async {
     try {
-      await _supabase.rpc('mark_messages_as_read', params: {
-        'p_chat_room_id': widget.chatRoomId,
-        'p_user_id': _supabase.auth.currentUser?.id,
-      });
+      await _supabase.rpc(
+        'mark_messages_as_read',
+        params: {
+          'p_chat_room_id': widget.chatRoomId,
+          'p_user_id': _supabase.auth.currentUser?.id,
+        },
+      );
     } catch (e) {
       debugPrint('Error marking messages as read: $e');
     }
@@ -241,7 +244,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           itemCount: _messages.length,
                           itemBuilder: (context, index) {
                             final message = _messages[index];
-                            final showDate = index == 0 ||
+                            final showDate =
+                                index == 0 ||
                                 _formatDate(_messages[index - 1]['sent_at']) !=
                                     _formatDate(message['sent_at']);
 
@@ -285,7 +289,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black,
                         blurRadius: 10,
                         offset: const Offset(0, -2),
                       ),
