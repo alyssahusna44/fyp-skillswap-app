@@ -1,6 +1,7 @@
 // lib/chat/chat_room_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../profile/user_profile_view_screen.dart';
 
 class ChatRoomScreen extends StatefulWidget {
   final int chatRoomId;
@@ -24,11 +25,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final _supabase = Supabase.instance.client;
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
-  
+
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
-  
+
   // Realtime subscription
   RealtimeChannel? _messageSubscription;
 
@@ -44,19 +45,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
-    // Properly remove the subscription
     _messageSubscription?.unsubscribe();
     super.dispose();
   }
 
   void _setupRealtimeSubscription() {
-    // Create a unique channel name for this chat room
     final channelName = 'chat_room_${widget.chatRoomId}';
-    
-    // Remove any existing subscription first
     _messageSubscription?.unsubscribe();
-    
-    // Subscribe to realtime changes
+
     _messageSubscription = _supabase
         .channel(channelName)
         .onPostgresChanges(
@@ -92,7 +88,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   void _handleNewMessage(Map<String, dynamic> newRecord) {
     if (!mounted) return;
-    
+
     final newMessage = {
       'id': newRecord['id'],
       'sender_id': newRecord['sender_id'],
@@ -103,31 +99,31 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     };
 
     setState(() {
-      // Check if message already exists (to avoid duplicates)
       final exists = _messages.any((msg) => msg['id'] == newMessage['id']);
       if (!exists) {
         _messages.add(newMessage);
-        // Sort messages by sent_at
-        _messages.sort((a, b) => 
-          DateTime.parse(a['sent_at']).compareTo(DateTime.parse(b['sent_at']))
+        _messages.sort(
+          (a, b) => DateTime.parse(
+            a['sent_at'],
+          ).compareTo(DateTime.parse(b['sent_at'])),
         );
       }
     });
 
-    // Mark as read if it's not from current user
     if (!newMessage['is_mine']) {
       _markMessagesAsRead();
     }
 
-    // Scroll to bottom
     _scrollToBottom();
   }
 
   void _handleMessageUpdate(Map<String, dynamic> updatedRecord) {
     if (!mounted) return;
-    
+
     setState(() {
-      final index = _messages.indexWhere((msg) => msg['id'] == updatedRecord['id']);
+      final index = _messages.indexWhere(
+        (msg) => msg['id'] == updatedRecord['id'],
+      );
       if (index != -1) {
         _messages[index] = {
           'id': updatedRecord['id'],
@@ -135,7 +131,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           'message_text': updatedRecord['message_text'],
           'sent_at': updatedRecord['sent_at'],
           'is_read': updatedRecord['is_read'],
-          'is_mine': updatedRecord['sender_id'] == _supabase.auth.currentUser?.id,
+          'is_mine':
+              updatedRecord['sender_id'] == _supabase.auth.currentUser?.id,
         };
       }
     });
@@ -165,7 +162,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _isLoading = false;
       });
 
-      // Scroll to bottom after loading
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     } catch (e) {
       debugPrint('Error loading messages: $e');
@@ -192,10 +188,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _markMessagesAsRead() async {
     try {
-      await _supabase.rpc('mark_messages_as_read', params: {
-        'p_chat_room_id': widget.chatRoomId,
-        'p_user_id': _supabase.auth.currentUser?.id,
-      });
+      await _supabase.rpc(
+        'mark_messages_as_read',
+        params: {
+          'p_chat_room_id': widget.chatRoomId,
+          'p_user_id': _supabase.auth.currentUser?.id,
+        },
+      );
     } catch (e) {
       debugPrint('Error marking messages as read: $e');
     }
@@ -208,7 +207,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     setState(() => _isSending = true);
 
     try {
-      // Clear the input field immediately for better UX
       _messageController.clear();
 
       await _supabase.from('chat_messages').insert({
@@ -216,14 +214,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         'sender_id': _supabase.auth.currentUser?.id,
         'message_text': messageText,
       });
-
-      // Note: The realtime subscription will handle adding the message to the UI
-      
     } catch (e) {
       debugPrint('Error sending message: $e');
       if (mounted) {
         _showError('Failed to send message: $e');
-        // Restore the message text if sending failed
         _messageController.text = messageText;
       }
     } finally {
@@ -236,10 +230,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void _showError(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     }
   }
@@ -266,38 +257,50 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
+  void _viewProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UserProfileViewScreen(userId: widget.otherUserId),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundImage: widget.otherUserProfilePic != null
-                  ? NetworkImage(widget.otherUserProfilePic!)
-                  : null,
-              child: widget.otherUserProfilePic == null
-                  ? Text(
-                      widget.otherUserName[0].toUpperCase(),
-                      style: const TextStyle(fontSize: 16),
-                    )
-                  : null,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                widget.otherUserName,
-                overflow: TextOverflow.ellipsis,
+        title: InkWell(
+          onTap: _viewProfile,
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundImage: widget.otherUserProfilePic != null
+                    ? NetworkImage(widget.otherUserProfilePic!)
+                    : null,
+                child: widget.otherUserProfilePic == null
+                    ? Text(
+                        widget.otherUserName[0].toUpperCase(),
+                        style: const TextStyle(fontSize: 16),
+                      )
+                    : null,
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  widget.otherUserName,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadMessages,
-            tooltip: 'Refresh messages',
+            icon: const Icon(Icons.person),
+            onPressed: _viewProfile,
+            tooltip: 'View Profile',
           ),
         ],
       ),
@@ -339,7 +342,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           itemCount: _messages.length,
                           itemBuilder: (context, index) {
                             final message = _messages[index];
-                            final showDate = index == 0 ||
+                            final showDate =
+                                index == 0 ||
                                 _formatDate(_messages[index - 1]['sent_at']) !=
                                     _formatDate(message['sent_at']);
 
@@ -416,8 +420,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       ),
                       const SizedBox(width: 8),
                       CircleAvatar(
-                        backgroundColor: _isSending 
-                            ? Colors.grey 
+                        backgroundColor: _isSending
+                            ? Colors.grey
                             : Theme.of(context).primaryColor,
                         child: IconButton(
                           icon: _isSending
@@ -489,7 +493,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                   Icon(
                     message['is_read'] ? Icons.done_all : Icons.done,
                     size: 14,
-                    color: message['is_read'] ? Colors.blue[200] : Colors.white70,
+                    color: message['is_read']
+                        ? Colors.blue[200]
+                        : Colors.white70,
                   ),
                 ],
               ],

@@ -1,3 +1,4 @@
+// lib/home_screen.dart
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
@@ -23,6 +24,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<DateTime, List<Map<String, dynamic>>> _availabilityMap = {};
   bool _isLoadingAvailability = true;
 
+  // Skills carousel state
+  List<Map<String, dynamic>> _popularSkills = [];
+  bool _isLoadingSkills = true;
+
   User? get currentUser => Supabase.instance.client.auth.currentUser;
 
   @override
@@ -30,6 +35,50 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _selectedDay = _focusedDay;
     _loadAvailability();
+    _loadPopularSkills();
+  }
+
+  Future<void> _loadPopularSkills() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('skills')
+          .select('id, name')
+          .order('name')
+          .limit(10);
+
+      List<Map<String, dynamic>> skillsWithCounts = [];
+
+      for (var skill in response as List) {
+        final teachersData = await Supabase.instance.client
+            .from('user_skills')
+            .select('user_id')
+            .eq('skill_id', skill['id'])
+            .eq('skill_level', 'TEACH');
+
+        final teachersCount = (teachersData as List).length;
+
+        if (teachersCount > 0) {
+          skillsWithCounts.add({
+            'id': skill['id'],
+            'name': skill['name'],
+            'teachers_count': teachersCount,
+          });
+        }
+      }
+
+      // Sort by most popular (most teachers)
+      skillsWithCounts.sort((a, b) => 
+        (b['teachers_count'] as int).compareTo(a['teachers_count'] as int)
+      );
+
+      setState(() {
+        _popularSkills = skillsWithCounts.take(6).toList();
+        _isLoadingSkills = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading popular skills: $e');
+      setState(() => _isLoadingSkills = false);
+    }
   }
 
   Future<void> _loadAvailability() async {
@@ -46,16 +95,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final availabilityList = response as List;
 
-      // Build availability map
       Map<DateTime, List<Map<String, dynamic>>> tempMap = {};
-
-      // Get next 60 days for recurring events
       final today = DateTime.now();
       final endDate = today.add(const Duration(days: 60));
 
       for (var avail in availabilityList) {
         if (avail['is_recurring'] == true) {
-          // Add recurring availability for next 60 days
           final dayOfWeek = _getDayNumber(avail['day_of_week']);
 
           for (
@@ -74,7 +119,6 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           }
         } else if (avail['date_specific'] != null) {
-          // Add specific date availability
           final date = DateTime.parse(avail['date_specific']);
           final dateKey = DateTime(date.year, date.month, date.day);
           tempMap[dateKey] = tempMap[dateKey] ?? [];
@@ -114,6 +158,18 @@ class _HomeScreenState extends State<HomeScreen> {
     return _availabilityMap[dateKey] ?? [];
   }
 
+  void _viewSkillTeachers(String skillName, int skillId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SkillTeachersScreen(
+          skillName: skillName,
+          skillId: skillId,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -127,7 +183,6 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
       ),
-      // Use the separated drawer widget with callback
       drawer: AppDrawer(onProfileUpdate: _loadAvailability),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -137,6 +192,10 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               // Welcome Section
               _buildWelcomeCard(),
+              const SizedBox(height: 24),
+
+              // Popular Skills Carousel
+              _buildPopularSkillsSection(),
               const SizedBox(height: 24),
 
               // Calendar Section
@@ -160,7 +219,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 16),
 
-              // Selected day availability details
               if (_selectedDay != null) _buildDayDetails(),
 
               const SizedBox(height: 24),
@@ -187,7 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Theme.of(context).primaryColor],
+          colors: [Theme.of(context).primaryColor, Theme.of(context).primaryColor],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -213,6 +271,211 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPopularSkillsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Popular Skills to Learn',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SearchScreen()),
+                );
+              },
+              child: const Text('See All'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        
+        if (_isLoadingSkills)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32.0),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (_popularSkills.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Column(
+                children: [
+                  Icon(Icons.school_outlined, size: 48, color: Colors.grey[400]),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No skills available yet',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          SizedBox(
+            height: 180,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _popularSkills.length,
+              itemBuilder: (context, index) {
+                final skill = _popularSkills[index];
+                return _buildSkillCard(
+                  skill['name'] as String,
+                  skill['id'] as int,
+                  skill['teachers_count'] as int,
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSkillCard(String skillName, int skillId, int teachersCount) {
+    // Color palette for cards
+    final colors = [
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.teal,
+      Colors.pink,
+    ];
+    final color = colors[skillId % colors.length];
+
+    return GestureDetector(
+      onTap: () => _viewSkillTeachers(skillName, skillId),
+      child: Container(
+        width: 160,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [color, color.withOpacity(0.7)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            // Background decoration
+            Positioned(
+              right: -20,
+              top: -20,
+              child: Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            Positioned(
+              left: -30,
+              bottom: -30,
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            
+            // Content
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Icon
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.lightbulb,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                  
+                  // Skill name and count
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        skillName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.school,
+                              color: Colors.white,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$teachersCount ${teachersCount == 1 ? 'teacher' : 'teachers'}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -432,6 +695,27 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// Import the SkillTeachersScreen from search_screen.dart or create a shared file
+// For now, we'll use a placeholder navigation
+class SkillTeachersScreen extends StatelessWidget {
+  final String skillName;
+  final int skillId;
+
+  const SkillTeachersScreen({
+    super.key,
+    required this.skillName,
+    required this.skillId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // This will be imported from the search_screen.dart file
+    return const Scaffold(
+      body: Center(child: Text('Skill Teachers Screen')),
     );
   }
 }
