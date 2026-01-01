@@ -30,51 +30,165 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
   }
 
   Future<void> _loadReviews() async {
+    setState(() => _isLoading = true);
+    
     try {
-      // Get review statistics
-      final statsData =
-          await _supabase.rpc(
-                'get_review_stats',
-                params: {'p_user_id': widget.userId},
-              )
-              as List;
+      // METHOD 1: Direct query approach (more reliable)
+      // Get all reviews for this user
+      final reviewsData = await _supabase
+          .from('reviews')
+          .select('id, reviewer_id, rating, comment, created_at')
+          .eq('reviewed_user_id', widget.userId)
+          .order('created_at', ascending: false);
 
-      // Get all reviews
-      final reviewsData =
-          await _supabase.rpc(
-                'get_user_reviews',
-                params: {'p_user_id': widget.userId},
-              )
-              as List;
+      debugPrint('Reviews data received: ${reviewsData.length} reviews');
+
+      // Get reviewer details for each review
+      List<Map<String, dynamic>> enrichedReviews = [];
+      
+      for (var review in reviewsData as List) {
+        try {
+          // Get reviewer name
+          final userData = await _supabase
+              .from('users')
+              .select('name')
+              .eq('id', review['reviewer_id'])
+              .maybeSingle();
+
+          // Get reviewer profile picture
+          final profileData = await _supabase
+              .from('profiles')
+              .select('profile_picture_url')
+              .eq('id', review['reviewer_id'])
+              .maybeSingle();
+
+          enrichedReviews.add({
+            'review_id': review['id'],
+            'reviewer_id': review['reviewer_id'],
+            'reviewer_name': userData?['name'] ?? 'Anonymous',
+            'reviewer_profile_pic': profileData?['profile_picture_url'],
+            'rating': review['rating'],
+            'comment': review['comment'],
+            'created_at': review['created_at'],
+          });
+        } catch (e) {
+          debugPrint('Error enriching review ${review['id']}: $e');
+          // Add review with partial data
+          enrichedReviews.add({
+            'review_id': review['id'],
+            'reviewer_id': review['reviewer_id'],
+            'reviewer_name': 'Anonymous',
+            'reviewer_profile_pic': null,
+            'rating': review['rating'],
+            'comment': review['comment'],
+            'created_at': review['created_at'],
+          });
+        }
+      }
+
+      // Calculate statistics
+      Map<String, dynamic> stats = _calculateStats(reviewsData);
+
+      if (!mounted) return;
 
       setState(() {
-        _stats = statsData.isNotEmpty ? statsData[0] : null;
-        _reviews = reviewsData.map((r) => r as Map<String, dynamic>).toList();
+        _reviews = enrichedReviews;
+        _stats = stats;
         _isLoading = false;
       });
-    } catch (e) {
+
+      debugPrint('Successfully loaded ${_reviews.length} reviews');
+      debugPrint('Stats: $_stats');
+    } catch (e, stackTrace) {
       debugPrint('Error loading reviews: $e');
+      debugPrint('Stack trace: $stackTrace');
+      
+      if (!mounted) return;
+      
       setState(() => _isLoading = false);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load reviews: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
-  String _formatDate(String timestamp) {
-    final dateTime = DateTime.parse(timestamp);
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
+  Map<String, dynamic> _calculateStats(List<dynamic> reviewsData) {
+    if (reviewsData.isEmpty) {
+      return {
+        'total_reviews': 0,
+        'average_rating': 0.0,
+        'five_star': 0,
+        'four_star': 0,
+        'three_star': 0,
+        'two_star': 0,
+        'one_star': 0,
+      };
+    }
 
-    if (difference.inDays > 365) {
-      final years = (difference.inDays / 365).floor();
-      return '$years ${years == 1 ? 'year' : 'years'} ago';
-    } else if (difference.inDays > 30) {
-      final months = (difference.inDays / 30).floor();
-      return '$months ${months == 1 ? 'month' : 'months'} ago';
-    } else if (difference.inDays > 0) {
-      return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-    } else {
-      return 'Just now';
+    int totalReviews = reviewsData.length;
+    double sumRatings = 0;
+    int fiveStar = 0, fourStar = 0, threeStar = 0, twoStar = 0, oneStar = 0;
+
+    for (var review in reviewsData) {
+      int rating = review['rating'] as int;
+      sumRatings += rating;
+
+      switch (rating) {
+        case 5:
+          fiveStar++;
+          break;
+        case 4:
+          fourStar++;
+          break;
+        case 3:
+          threeStar++;
+          break;
+        case 2:
+          twoStar++;
+          break;
+        case 1:
+          oneStar++;
+          break;
+      }
+    }
+
+    return {
+      'total_reviews': totalReviews,
+      'average_rating': sumRatings / totalReviews,
+      'five_star': fiveStar,
+      'four_star': fourStar,
+      'three_star': threeStar,
+      'two_star': twoStar,
+      'one_star': oneStar,
+    };
+  }
+
+  String _formatDate(String timestamp) {
+    try {
+      final dateTime = DateTime.parse(timestamp);
+      final now = DateTime.now();
+      final difference = now.difference(dateTime);
+
+      if (difference.inDays > 365) {
+        final years = (difference.inDays / 365).floor();
+        return '$years ${years == 1 ? 'year' : 'years'} ago';
+      } else if (difference.inDays > 30) {
+        final months = (difference.inDays / 30).floor();
+        return '$months ${months == 1 ? 'month' : 'months'} ago';
+      } else if (difference.inDays > 0) {
+        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
+      } else if (difference.inHours > 0) {
+        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
+      } else {
+        return 'Just now';
+      }
+    } catch (e) {
+      debugPrint('Error formatting date: $e');
+      return '';
     }
   }
 
@@ -94,7 +208,8 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
                 child: Column(
                   children: [
                     // Statistics Card
-                    if (_stats != null) _buildStatsCard(),
+                    if (_stats != null && _stats!['total_reviews'] > 0)
+                      _buildStatsCard(),
 
                     // Reviews List
                     if (_reviews.isEmpty)
@@ -341,7 +456,8 @@ class _UserReviewsScreenState extends State<UserReviewsScreen> {
             const SizedBox(height: 16),
 
             // Review Comment
-            if (review['comment'] != null && review['comment'].isNotEmpty)
+            if (review['comment'] != null && 
+                review['comment'].toString().isNotEmpty)
               Text(
                 review['comment'],
                 style: TextStyle(

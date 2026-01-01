@@ -1,3 +1,4 @@
+// lib/search/search_screen.dart
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
@@ -5,7 +6,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../profile/user_profile_view_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  // Add these optional parameters
   final String? initialSkillName;
   final String? initialSkillLevel;
 
@@ -80,6 +80,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
+      final searchQuery = _searchController.text.trim().toLowerCase();
 
       // STEP 1: Get profiles
       var profileQuery = _supabase.from('profiles').select('''
@@ -126,14 +127,6 @@ class _SearchScreenState extends State<SearchScreen> {
         final userId = profile['id'];
         final userName = usersMap[userId] ?? 'Unknown';
 
-        // Apply text search filter on name
-        if (_searchController.text.isNotEmpty &&
-            !userName.toLowerCase().contains(
-              _searchController.text.toLowerCase(),
-            )) {
-          continue;
-        }
-
         // Get user skills
         var skillsQuery = _supabase
             .from('user_skills')
@@ -150,25 +143,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
         final skillsData = await skillsQuery;
 
-        // Apply skill name filter
-        if (_selectedSkillFilter != null && _selectedSkillFilter!.isNotEmpty) {
-          final hasSkill = (skillsData as List).any(
-            (s) => s['skills']['name'] == _selectedSkillFilter!,
-          );
-          if (!hasSkill) {
-            continue;
-          }
-        }
-
-        // Only include users who match skill filters (if any applied)
-        if ((_selectedSkillFilter != null &&
-                _selectedSkillFilter!.isNotEmpty) ||
-            _skillLevelFilter != 'ALL') {
-          if ((skillsData as List).isEmpty) {
-            continue;
-          }
-        }
-
         // Separate skills by level
         final skillsToTeach = (skillsData as List)
             .where((s) => s['skill_level'] == 'TEACH')
@@ -179,6 +153,42 @@ class _SearchScreenState extends State<SearchScreen> {
             .where((s) => s['skill_level'] == 'LEARN')
             .map((s) => s['skills']['name'] as String)
             .toList();
+
+        // Combine all skills for searching
+        final allUserSkills = [...skillsToTeach, ...skillsToLearn];
+
+        // ENHANCED TEXT SEARCH: Search in both name AND skills
+        bool matchesTextSearch = true;
+        if (searchQuery.isNotEmpty) {
+          final nameMatches = userName.toLowerCase().contains(searchQuery);
+          final skillMatches = allUserSkills.any(
+            (skill) => skill.toLowerCase().contains(searchQuery),
+          );
+          matchesTextSearch = nameMatches || skillMatches;
+        }
+
+        if (!matchesTextSearch) {
+          continue;
+        }
+
+        // Apply skill name filter (from dropdown)
+        if (_selectedSkillFilter != null && _selectedSkillFilter!.isNotEmpty) {
+          final hasSkill = allUserSkills.any(
+            (skill) => skill == _selectedSkillFilter!,
+          );
+          if (!hasSkill) {
+            continue;
+          }
+        }
+
+        // Only include users who match skill filters (if any applied)
+        if ((_selectedSkillFilter != null &&
+                _selectedSkillFilter!.isNotEmpty) ||
+            _skillLevelFilter != 'ALL') {
+          if (allUserSkills.isEmpty) {
+            continue;
+          }
+        }
 
         results.add({
           'id': userId,
@@ -266,12 +276,12 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             child: Column(
               children: [
-                // Search field
+                // Search field with improved hint
                 TextField(
                   controller: _searchController,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    hintText: 'Search by name...',
+                    hintText: 'Search by name or skill...', // Updated hint
                     hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
                     prefixIcon: const Icon(Icons.search, color: Colors.white),
                     suffixIcon: _searchController.text.isNotEmpty
@@ -295,6 +305,12 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ),
                   onSubmitted: (_) => _performSearch(),
+                  onChanged: (value) {
+                    // Perform search as user types
+                    if (value.isEmpty || value.length >= 2) {
+                      _performSearch();
+                    }
+                  },
                 ),
                 const SizedBox(height: 12),
 
@@ -308,33 +324,25 @@ class _SearchScreenState extends State<SearchScreen> {
                         avatar: Icon(
                           Icons.filter_list,
                           size: 18,
-                          color: Theme.of(
-                            context,
-                          ).primaryColor, // Uses the dark blue (#114A99)
+                          color: Theme.of(context).primaryColor,
                         ),
                         label: Text(
                           'Filters',
                           style: TextStyle(
-                            color: Theme.of(
-                              context,
-                            ).primaryColor, // Uses the dark blue (#114A99)
+                            color: Theme.of(context).primaryColor,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        // backgroundColor uses the accent color (#FEBD59) defined in main.dart
-                        backgroundColor: Theme.of(
-                          context,
-                        ).colorScheme.secondary,
+                        backgroundColor: Theme.of(context).colorScheme.secondary,
                         onPressed: _showFilterDialog,
-                        side: BorderSide
-                            .none, // Removes the border for a cleaner look
+                        side: BorderSide.none,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
                       ),
                       const SizedBox(width: 8),
 
-                      // Active filter chips (Updated for better readability)
+                      // Active filter chips
                       if (_selectedSkillFilter != null) ...[
                         Chip(
                           label: Text(
@@ -419,8 +427,9 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Try adjusting your filters',
+                          'Try adjusting your filters or search terms',
                           style: TextStyle(color: Colors.grey[500]),
+                          textAlign: TextAlign.center,
                         ),
                       ],
                     ),
@@ -440,7 +449,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 }
 
-// Filter Bottom Sheet
+// Filter Bottom Sheet (unchanged)
 class _FilterBottomSheet extends StatefulWidget {
   final List<String> availableSkills;
   final String? selectedSkill;
@@ -652,7 +661,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
   }
 }
 
-// User Card Widget
+// User Card Widget (unchanged)
 class _UserCard extends StatelessWidget {
   final Map<String, dynamic> user;
 
@@ -670,7 +679,6 @@ class _UserCard extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: () {
-          // Navigate to user profile detail
           Navigator.push(
             context,
             MaterialPageRoute(

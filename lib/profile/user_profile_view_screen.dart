@@ -448,11 +448,14 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
           const SizedBox(height: 12),
 
           // Rating
+          // Locate this section inside _buildProfileHeader()
+
+          // Rating
           if (_averageRating > 0)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Colors.white, // Background remains white
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
@@ -460,17 +463,21 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
                 children: [
                   const Icon(Icons.star, color: Colors.amber, size: 24),
                   const SizedBox(width: 8),
+                  // THE RATING NUMBER
                   Text(
                     _averageRating.toStringAsFixed(1),
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      // CHANGE FROM Colors.white TO Colors.black
+                      color: Colors.black,
                     ),
                   ),
+                  // THE "/ 5.0" PART
                   const Text(
                     ' / 5.0',
-                    style: TextStyle(fontSize: 16, color: Colors.white70),
+                    // CHANGE FROM Colors.white70 TO Colors.black54 (or Colors.grey)
+                    style: TextStyle(fontSize: 16, color: Colors.black54),
                   ),
                 ],
               ),
@@ -481,50 +488,69 @@ class _UserProfileViewScreenState extends State<UserProfileViewScreen> {
   }
 
   Widget _buildContactButtons() {
+    // Define a standard style for consistency
+    final primaryStyle = ElevatedButton.styleFrom(
+      elevation: 0,
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      backgroundColor: Theme.of(context).primaryColor,
+      foregroundColor: Colors.white, // Ensures readability
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+    );
+
+    final secondaryStyle = ElevatedButton.styleFrom(
+      elevation: 0,
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      backgroundColor: Colors.amber[700],
+      foregroundColor: Colors.white, // High contrast for the amber background
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+    );
+
+    final outlineStyle = OutlinedButton.styleFrom(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      side: BorderSide(color: Theme.of(context).primaryColor, width: 1.5),
+      foregroundColor: Theme.of(context).primaryColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
-          // Primary actions: Message and Review
           Row(
             children: [
+              // MESSAGE BUTTON (Primary)
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _startChat,
-                  icon: const Icon(Icons.chat_bubble),
+                  icon: const Icon(Icons.chat_bubble_outline, size: 20),
                   label: const Text('Message'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    backgroundColor: Theme.of(context).primaryColor,
-                  ),
+                  style: primaryStyle,
                 ),
               ),
               const SizedBox(width: 12),
+              // REVIEW BUTTON (Secondary/Accent)
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: _writeReview,
-                  icon: const Icon(Icons.star),
+                  icon: const Icon(Icons.star_outline, size: 22),
                   label: const Text('Review'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    backgroundColor: Colors.amber[700],
-                  ),
+                  style: secondaryStyle,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-
-          // Secondary action: Email only
+          // EMAIL BUTTON (Tertiary/Contact)
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: _sendEmail,
-              icon: const Icon(Icons.email),
-              label: const Text('Send Email'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
+              icon: const Icon(Icons.email_outlined, size: 20),
+              label: const Text('Send Email Inquiry'),
+              style: outlineStyle,
             ),
           ),
         ],
