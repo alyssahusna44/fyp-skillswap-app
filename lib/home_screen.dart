@@ -67,8 +67,9 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // Sort by most popular (most teachers)
-      skillsWithCounts.sort((a, b) => 
-        (b['teachers_count'] as int).compareTo(a['teachers_count'] as int)
+      skillsWithCounts.sort(
+        (a, b) =>
+            (b['teachers_count'] as int).compareTo(a['teachers_count'] as int),
       );
 
       setState(() {
@@ -162,10 +163,8 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SkillTeachersScreen(
-          skillName: skillName,
-          skillId: skillId,
-        ),
+        builder: (context) =>
+            SkillTeachersScreen(skillName: skillName, skillId: skillId),
       ),
     );
   }
@@ -245,7 +244,10 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Theme.of(context).primaryColor, Theme.of(context).primaryColor],
+          colors: [
+            Theme.of(context).primaryColor,
+            Theme.of(context).primaryColor,
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -284,9 +286,9 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Text(
               'Popular Skills to Learn',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             TextButton(
               onPressed: () {
@@ -300,7 +302,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        
+
         if (_isLoadingSkills)
           const Center(
             child: Padding(
@@ -314,7 +316,11 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.all(32.0),
               child: Column(
                 children: [
-                  Icon(Icons.school_outlined, size: 48, color: Colors.grey[400]),
+                  Icon(
+                    Icons.school_outlined,
+                    size: 48,
+                    color: Colors.grey[400],
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     'No skills available yet',
@@ -403,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            
+
             // Content
             Padding(
               padding: const EdgeInsets.all(16),
@@ -424,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       size: 28,
                     ),
                   ),
-                  
+
                   // Skill name and count
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -714,8 +720,6 @@ class SkillTeachersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // This will be imported from the search_screen.dart file
-    return const Scaffold(
-      body: Center(child: Text('Skill Teachers Screen')),
-    );
+    return const Scaffold(body: Center(child: Text('Skill Teachers Screen')));
   }
 }
