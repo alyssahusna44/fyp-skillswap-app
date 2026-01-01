@@ -55,7 +55,7 @@ class MyApp extends StatelessWidget {
             backgroundColor: mainColor,
             foregroundColor: Colors.white,
             // Use accent color for shadows or highlights if desired
-            shadowColor: mainColor.withOpacity(0.5),
+            shadowColor: mainColor,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
