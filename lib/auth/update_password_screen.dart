@@ -14,7 +14,7 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
 
   Future<void> _updatePassword() async {
     if (_passwordController.text.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password must be at least 6 characters')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password too short')));
       return;
     }
 
@@ -24,11 +24,13 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
         UserAttributes(password: _passwordController.text.trim()),
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated! Please login.'), backgroundColor: Colors.green));
-        Navigator.pushReplacementNamed(context, '/login');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password updated successfully!'), backgroundColor: Colors.green)
+        );
+        Navigator.of(context).pop(); // Go back to login
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -37,14 +39,26 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New Password')),
+      appBar: AppBar(title: const Text('Set New Password')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            TextField(controller: _passwordController, decoration: const InputDecoration(labelText: 'Enter New Password'), obscureText: true),
+            const Text('Please enter your new password below.'),
             const SizedBox(height: 20),
-            ElevatedButton(onPressed: _isLoading ? null : _updatePassword, child: const Text('Update Password')),
+            TextField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'New Password', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _updatePassword,
+                child: _isLoading ? const CircularProgressIndicator() : const Text('Update Password'),
+              ),
+            ),
           ],
         ),
       ),

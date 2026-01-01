@@ -45,7 +45,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       // Note: redirectTo should be your web URL for deployment
       await Supabase.instance.client.auth.resetPasswordForEmail(
         _emailController.text.trim(),
-        redirectTo: 'https://unikl-skillswap-app.netlify.app/update-password', 
+        redirectTo: 'io.skillsswap.app://reset-password',
       );
 
       if (!mounted) return;
@@ -106,9 +106,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 Text(
                   'Reset Password',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: primaryColor,
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: primaryColor,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
@@ -128,7 +128,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         decoration: InputDecoration(
                           labelText: 'University Email',
                           hintText: 'studentID@s.unikl.edu.my',
-                          prefixIcon: Icon(Icons.email_outlined, color: primaryColor),
+                          prefixIcon: Icon(
+                            Icons.email_outlined,
+                            color: primaryColor,
+                          ),
                           filled: true,
                           fillColor: Colors.grey[50],
                           border: OutlineInputBorder(
@@ -137,7 +140,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: primaryColor, width: 2),
+                            borderSide: BorderSide(
+                              color: primaryColor,
+                              width: 2,
+                            ),
                           ),
                         ),
                         validator: _validateUnikEmail,
@@ -157,10 +163,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             elevation: 2,
                           ),
                           child: _isLoading
-                              ? const CircularProgressIndicator(color: Colors.white)
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
                               : const Text(
                                   'Send Reset Link',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                         ),
                       ),
@@ -175,23 +186,40 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     color: Colors.green[50],
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.mark_email_read, size: 80, color: Colors.green[600]),
+                  child: Icon(
+                    Icons.mark_email_read,
+                    size: 80,
+                    color: Colors.green[600],
+                  ),
                 ),
                 const SizedBox(height: 32),
                 Text(
                   'Check Your Email',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.green[700]),
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green[700],
+                  ),
                 ),
                 const SizedBox(height: 16),
                 RichText(
                   textAlign: TextAlign.center,
                   text: TextSpan(
-                    style: TextStyle(color: Colors.grey[600], fontSize: 16, height: 1.5),
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 16,
+                      height: 1.5,
+                    ),
                     children: [
-                      const TextSpan(text: 'We have sent a password recovery link to\n'),
+                      const TextSpan(
+                        text: 'We have sent a password recovery link to\n',
+                      ),
                       TextSpan(
                         text: _emailController.text,
-                        style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
@@ -202,7 +230,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   onPressed: _isLoading ? null : _sendResetEmail,
                   child: Text(
                     'Didn\'t receive the email? Resend',
-                    style: TextStyle(color: accentColor, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: accentColor,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
