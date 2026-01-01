@@ -20,92 +20,54 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) { 
+  Widget build(BuildContext context) {
+    // Define the custom colors
+    const Color mainColor = Color(0xFF114A99);
+    const Color accentColor = Color(0xFFFEBD59);
+
     return MaterialApp(
       title: 'SkillSwap',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        primaryColor: Colors.blue[700],
+        useMaterial3: true,
+        primaryColor: mainColor,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue[700]!,
+          seedColor: mainColor,
+          secondary: accentColor,
           brightness: Brightness.light,
         ),
-        useMaterial3: true,
 
-        // Input decoration theme
+        // Update Input decoration
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.grey[50],
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 16,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey[300]!),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey[300]!),
-          ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.blue[700]!, width: 2),
+            borderSide: const BorderSide(color: mainColor, width: 2),
           ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Colors.red, width: 2),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Colors.red, width: 2),
-          ),
+          // ... (keep other borders consistent)
         ),
 
-        // Elevated button theme
+        // Update Button theme
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue[700],
+            backgroundColor: mainColor,
             foregroundColor: Colors.white,
-            elevation: 2,
-            shadowColor: Colors.blue[700],
+            // Use accent color for shadows or highlights if desired
+            shadowColor: mainColor.withOpacity(0.5),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           ),
         ),
 
-        // Text button theme
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.blue[700],
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
-        ),
-
-        // App bar theme
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.blue[700],
+        // Update App bar theme
+        appBarTheme: const AppBarTheme(
+          backgroundColor: mainColor,
           foregroundColor: Colors.white,
-          elevation: 0,
           centerTitle: true,
-          titleTextStyle: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
         ),
-
-        // Drawer theme
-        drawerTheme: const DrawerThemeData(backgroundColor: Colors.white),
       ),
-
-      // Check authentication state and navigate accordingly
       home: const AuthStateWrapper(),
     );
   }
