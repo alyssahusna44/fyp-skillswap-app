@@ -163,8 +163,10 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            SkillTeachersScreen(skillName: skillName, skillId: skillId),
+        builder: (context) => SearchScreen(
+          initialSkillName: skillName,
+          initialSkillLevel: 'TEACH', // We want to find people who can TEACH this skill
+        ),
       ),
     );
   }

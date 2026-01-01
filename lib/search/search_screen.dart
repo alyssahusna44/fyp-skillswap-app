@@ -5,7 +5,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../profile/user_profile_view_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  // Add these optional parameters
+  final String? initialSkillName;
+  final String? initialSkillLevel;
+
+  const SearchScreen({
+    super.key, 
+    this.initialSkillName, 
+    this.initialSkillLevel,
+  });
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -29,6 +37,8 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedSkillFilter = widget.initialSkillName;
+    _skillLevelFilter = widget.initialSkillLevel ?? 'ALL';
     _loadInitialData();
   }
 
