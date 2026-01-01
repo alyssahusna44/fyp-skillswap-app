@@ -1561,3 +1561,167 @@ BEGIN
 END;
 
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- =============================================
+-- FIX 1: Update chat_rooms table to make skills optional
+-- =============================================
+
+-- Drop existing constraints
+ALTER TABLE public.chat_rooms 
+DROP CONSTRAINT IF EXISTS different_skills;
+
+-- Make skill columns nullable
+ALTER TABLE public.chat_rooms 
+ALTER COLUMN skill_1_id DROP NOT NULL,
+ALTER COLUMN skill_2_id DROP NOT NULL;
+
+-- Add flexible constraint (skills can be null OR different)
+ALTER TABLE public.chat_rooms 
+ADD CONSTRAINT different_skills 
+CHECK (
+    (skill_1_id IS NULL OR skill_2_id IS NULL) OR 
+    (skill_1_id != skill_2_id)
+);
+
+-- =============================================
+-- FIX 2: Updated get_or_create_chat_room function
+-- This function now works WITHOUT requiring skills
+-- =============================================
+
+CREATE OR REPLACE FUNCTION get_or_create_chat_room(
+    p_user_1_id UUID,
+    p_user_2_id UUID,
+    p_skill_1_id BIGINT DEFAULT NULL,
+    p_skill_2_id BIGINT DEFAULT NULL
+)
+RETURNS BIGINT AS $$
+DECLARE
+    v_room_id BIGINT;
+    v_min_user UUID;
+    v_max_user UUID;
+BEGIN
+    -- Ensure users are different
+    IF p_user_1_id = p_user_2_id THEN
+        RAISE EXCEPTION 'Cannot create chat room with yourself';
+    END IF;
+
+    -- Ensure consistent ordering for unique constraint
+    v_min_user := LEAST(p_user_1_id, p_user_2_id);
+    v_max_user := GREATEST(p_user_1_id, p_user_2_id);
+    
+    -- Try to find existing room between these two users
+    SELECT id INTO v_room_id
+    FROM public.chat_rooms
+    WHERE (user_1_id = v_min_user AND user_2_id = v_max_user);
+
+    -- If not found, create a new room
+    IF v_room_id IS NULL THEN
+        INSERT INTO public.chat_rooms (
+            user_1_id,
+            user_2_id,
+            creator_id,
+            skill_1_id,
+            skill_2_id
+        ) VALUES (
+            v_min_user,
+            v_max_user,
+            auth.uid(),
+            p_skill_1_id,
+            p_skill_2_id
+        )
+        RETURNING id INTO v_room_id;
+    END IF;
+    
+    RETURN v_room_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant execute permission
+GRANT EXECUTE ON FUNCTION get_or_create_chat_room TO authenticated;
+
+-- =============================================
+-- FIX 3: Add helper function to get user email
+-- =============================================
+
+CREATE OR REPLACE FUNCTION get_user_email(p_user_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+    v_email TEXT;
+BEGIN
+    -- Get email from users table
+    SELECT email INTO v_email
+    FROM public.users
+    WHERE id = p_user_id;
+    
+    -- If not found in users table, try auth.users
+    IF v_email IS NULL THEN
+        SELECT email INTO v_email
+        FROM auth.users
+        WHERE id = p_user_id;
+    END IF;
+    
+    RETURN v_email;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant execute permission
+GRANT EXECUTE ON FUNCTION get_user_email TO authenticated;
+
+-- =============================================
+-- FIX 4: Verify and update RLS policies
+-- =============================================
+
+-- Drop and recreate chat_rooms policies for clarity
+DROP POLICY IF EXISTS "Users can view rooms they're part of" ON public.chat_rooms;
+DROP POLICY IF EXISTS "Users can create chat rooms" ON public.chat_rooms;
+DROP POLICY IF EXISTS "Users can update rooms they're part of" ON public.chat_rooms;
+
+-- Allow users to view rooms they're part of
+CREATE POLICY "Users can view rooms they're part of" 
+ON public.chat_rooms
+    FOR SELECT 
+    USING (auth.uid() = user_1_id OR auth.uid() = user_2_id);
+
+-- Allow users to create chat rooms (they must be one of the participants)
+CREATE POLICY "Users can create chat rooms" 
+ON public.chat_rooms
+    FOR INSERT 
+    WITH CHECK (
+        auth.uid() = creator_id AND 
+        (auth.uid() = user_1_id OR auth.uid() = user_2_id)
+    );
+
+-- Allow users to update rooms they're part of
+CREATE POLICY "Users can update rooms they're part of" 
+ON public.chat_rooms
+    FOR UPDATE 
+    USING (auth.uid() = user_1_id OR auth.uid() = user_2_id);
+
+-- =============================================
+-- VERIFICATION QUERIES
+-- =============================================
+
+-- Test the get_or_create_chat_room function
+-- Replace with actual user IDs from your database
+-- SELECT get_or_create_chat_room(
+--     'user-uuid-1',
+--     'user-uuid-2'
+-- );
+
+-- Test the get_user_email function
+-- SELECT get_user_email('your-user-uuid');
+
+-- Check if chat rooms table is correctly structured
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public' 
+  AND table_name = 'chat_rooms'
+ORDER BY ordinal_position;
+
+-- View all policies on chat_rooms
+SELECT policyname, cmd, qual, with_check
+FROM pg_policies
+WHERE schemaname = 'public' 
+  AND tablename = 'chat_rooms';
+
