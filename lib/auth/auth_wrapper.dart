@@ -88,16 +88,6 @@ class _AuthWrapperScreenState extends State<AuthWrapperScreen>
                     fit: BoxFit.contain,
                   ),
                   const SizedBox(height: 16),
-
-                  // App Title
-                  Text(
-                    'SkillSwap',
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).primaryColor,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
                   Text(
                     'Learn & Teach Skills Together',
                     style: Theme.of(

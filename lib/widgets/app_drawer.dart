@@ -5,6 +5,7 @@ import '../auth/auth_wrapper.dart';
 import '../profile/profile_wrapper.dart';
 import '../search/search_screen.dart';
 import '../chat/chat_list_screen.dart';
+import '../settings/settings_screen.dart';
 
 class AppDrawer extends StatefulWidget {
   final VoidCallback? onProfileUpdate;
@@ -136,6 +137,7 @@ class _AppDrawerState extends State<AppDrawer> {
   Future<void> _signOut() async {
     try {
       await Supabase.instance.client.auth.signOut();
+      
       if (!mounted) return;
 
       Navigator.pushAndRemoveUntil(
@@ -143,6 +145,7 @@ class _AppDrawerState extends State<AppDrawer> {
         MaterialPageRoute(builder: (context) => const AuthWrapperScreen()),
         (route) => false,
       );
+      
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -294,9 +297,10 @@ class _AppDrawerState extends State<AppDrawer> {
             icon: Icons.settings_outlined,
             title: 'Settings',
             onTap: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Settings coming soon!')),
+              Navigator.pop(context); // Close drawer
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
               );
             },
           ),
