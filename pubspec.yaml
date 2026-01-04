@@ -39,5 +39,5 @@ flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "lib/assets/SkillSwap_Logo.png"
-  adaptive_icon_background: "#ffffff" # Optional for Android
-  adaptive_icon_foreground: "lib/assets/SkillSwap_Logo.png" # Optional for Android
+  adaptive_icon_background: "#ffffff"
+  adaptive_icon_foreground: "lib/assets/SkillSwap_Logo.png"
